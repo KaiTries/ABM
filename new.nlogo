@@ -54,15 +54,17 @@ to assign-task-to-node  [ #t #n ]
   ]
 end
 
-
+; function that enables agent #a to try and give task #t to some other agent
+; criteria to choose is other agent with the lowest amount of tasks piled up
 to transfer-task [#t #a]
   let nodes-tried []
   let valid-node nobody
   let candidate nobody
   let fewest-tasks length stack-of-tasks  ; Track the smallest number of tasks found
+  let notFound true
 
 
-  while [valid-node = nobody and length nodes-tried < count nodes] [
+  while [valid-node = nobody and length nodes-tried < count nodes and notFound] [
     set candidate one-of nodes with [ not member? self nodes-tried ]
     set nodes-tried lput candidate nodes-tried
 
@@ -75,17 +77,23 @@ to transfer-task [#t #a]
       if candidate-tasks < fewest-tasks [
         set fewest-tasks candidate-tasks
         set valid-node candidate  ; Select this node with fewer tasks
+        ; no need to keep traversing 0 is lowest we can go
+        if candidate-tasks = 0 [
+          set notFound false
+        ]
       ]
     ]
   ]
 
   ifelse valid-node = nobody [
-    show (word "No suitable node found to transfer the task.")
+    show (word "No suitable node found to transfer the task. Discarding!")
     set tasks-overflowed tasks-overflowed + 1
     ask #a [
       set stack-of-tasks but-first stack-of-tasks
     ]
-
+    ask #t [
+      die
+    ]
   ] [
     ; Transfer the task to the valid node
     ask valid-node [
@@ -208,7 +216,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-20.0
+10.0
 1
 1
 NIL
