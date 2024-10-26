@@ -1,4 +1,4 @@
-globals [ tasks-overflowed ]
+globals [ tasks-overflowed max-max-capacity ]
 
 breed [nodes node ]
 breed [tasks task ]
@@ -6,6 +6,7 @@ nodes-own [ max-capacity stack-of-tasks capability working-on]
 tasks-own [ difficulty task-type time]
 
 to setup
+  set max-max-capacity 5
   clear-all
   setup-environment
   reset-ticks
@@ -13,7 +14,7 @@ end
 
 to setup-nodes
   create-nodes number-of-nodes [
-    set max-capacity random 5 + 1
+    set max-capacity random max-max-capacity + 1
     set stack-of-tasks []
     set working-on nobody
     set color blue
@@ -40,8 +41,9 @@ to instantiate-tasks
   ]
 end
 
-
-to assign-task-to-node  [ #t #n ]
+; function that initially assigns a task to a node
+; the task-time is created by multipying capability of the node with the difficulty
+to assign-task-to-node [ #t #n ]
   ask #n [
     let task-time 0
     let dot-product sum (map [ [ x y ] -> x * y ] [task-type] of #t capability)
@@ -60,24 +62,24 @@ to transfer-task [#t #a]
   let nodes-tried []
   let valid-node nobody
   let candidate nobody
-  let fewest-tasks length stack-of-tasks  ; Track the smallest number of tasks found
+  let fewest-tasks 1e+100 ; Track the smallest number of tasks found
   let notFound true
 
 
+  ; standard BFS
   while [valid-node = nobody and length nodes-tried < count nodes and notFound] [
     set candidate one-of nodes with [ not member? self nodes-tried ]
     set nodes-tried lput candidate nodes-tried
 
-    ; Check if the candidate is not the current node and has capacity
+
     if candidate != #a and length [stack-of-tasks] of candidate < [max-capacity] of candidate [
 
-      let candidate-tasks length [stack-of-tasks] of candidate  ; Get the task count for this candidate
+      let candidate-tasks length [stack-of-tasks] of candidate
 
-      ; If the candidate has fewer tasks than the previous candidates, select it
       if candidate-tasks < fewest-tasks [
         set fewest-tasks candidate-tasks
-        set valid-node candidate  ; Select this node with fewer tasks
-        ; no need to keep traversing 0 is lowest we can go
+        set valid-node candidate
+        show (word "found candidate " valid-node)
         if candidate-tasks = 0 [
           set notFound false
         ]
@@ -89,7 +91,10 @@ to transfer-task [#t #a]
     show (word "No suitable node found to transfer the task. Discarding!")
     set tasks-overflowed tasks-overflowed + 1
     ask #a [
-      set stack-of-tasks but-first stack-of-tasks
+      if member? #t stack-of-tasks [
+        set stack-of-tasks remove #t stack-of-tasks
+        show (word "Task " #t " removed from node " self " after transfer.")
+      ]
     ]
     ask #t [
       die
@@ -102,22 +107,44 @@ to transfer-task [#t #a]
     ]
     ; Remove the task from the original node's stack-of-tasks
     ask #a [
-      set stack-of-tasks but-first stack-of-tasks
+    if member? #t stack-of-tasks [
+      set stack-of-tasks remove #t stack-of-tasks
       show (word "Task removed from node " self " after transfer.")
+    ]
     ]
   ]
 end
 
+
+
+
+to handle-random-task-assigned-overflow [#t #a]
+  ; received a task through environment but at max capacity already need to transfer
+  ; transfer should be with or without penalty?
+  show(word "Received a task but do not have any capacity for it!")
+  transfer-task #t #a
+end
+
+
+to handle-giving-up-on-task [#t #a]
+  ask #a [
+
+    show(word "Giving up on task: " working-on)
+  ]
+
+end
+
+
+
+
 to agent-loop [ #a ]
   ask #a [
     if length stack-of-tasks > max-capacity [
-      ; received a task through environment but at max capacity already need to transfer
-      ; transfer should be with or without penalty?
-      show(word "Received a task but do not have any capacity for it!")
       let overflowing-task item 0 stack-of-tasks
-      transfer-task overflowing-task #a
+      handle-random-task-assigned-overflow overflowing-task #a
     ]
     ifelse working-on != nobody [
+      ; task fertig time left 0
       ifelse [ time ] of working-on = 0 [
         let task-vector [ task-type ] of working-on
         let d [ difficulty ] of working-on
@@ -128,11 +155,30 @@ to agent-loop [ #a ]
           die
         ]
         set working-on nobody
-      ] [
-        ask working-on [
-          set time time - 1
+      ]
+      [
+        ; implement logic that one might give up
+        ; chance to give up
+        ifelse random-float 0.2 > sum (map [ [ x y ] -> x * y ] [task-type] of working-on capability)  [
+          handle-giving-up-on-task working-on #a
+          show(word "Giving up on task: " working-on)
+
+          ; loose capability
+          let task-vector [ task-type ] of working-on
+          let d [ difficulty ] of working-on
+          let old capability
+          set capability (map [ [x y] -> x + (y * (learning-rate / 100) * (1 - x) * (1 - d)) ] capability task-vector)
+          show (word "Task of type " task-vector " and difficulty " d " given up - decreased capability from " old " to " capability)
+          transfer-task working-on #a
+          set working-on nobody
         ]
-        show(word "Working on task: " working-on " remaining time: " [time] of working-on)
+        ; time left decreases
+        [
+          ask working-on [
+            set time time - 1
+          ]
+          show(word "Working on task: " working-on " remaining time: " [time] of working-on)
+        ]
       ]
     ] [
       ifelse length stack-of-tasks > 0 [
@@ -216,7 +262,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-10.0
+29.0
 1
 1
 NIL
