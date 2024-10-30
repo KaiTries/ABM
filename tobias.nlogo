@@ -24,7 +24,13 @@ tasks-own [
 
 
 ; Calculate success probability for a given agent capability and task requirement
-to-report calculate-success-probability [agent-capability task-requirement]
+to-report calculate-success-probability [agent-capability task-requirement agent]
+  let group nodes with [working-on = agent]
+  show (word "=> AGENT CAPABILITY: " map [ x -> precision x 2] agent-capability )
+  ask group [
+    set agent-capability transfer-knowledge agent-capability capability
+  ]
+  show (word "=> GROUP CAPABILITY: " map [ x -> precision x 2] agent-capability )
   let probs map [ x -> min (list 1 (item x agent-capability / item x task-requirement)) ] (range n_capabilities)
   report reduce [ [a b] -> a * b ] probs
 end
@@ -96,16 +102,13 @@ to apply-learning-decay [current-node]
 end
 
 ; Knowledge Transfer
-to transfer-knowledge [weak-node strong-node]
-  let weak-capability [capability] of weak-node
-  let strong-capability [capability] of strong-node
+to-report transfer-knowledge [weak-capability strong-capability]
 
-  let new-capability weak-capability +
-    (gamma * (strong-capability - weak-capability))
+  let new-capability map [ x -> min ( list 1 (item x weak-capability +
+    (gamma * item x strong-capability)))
+  ] (range n_capabilities)
 
-  ask weak-node [
-    set capability new-capability
-  ]
+  report new-capability
 end
 
 ; Helper procedure to find capable helper
@@ -130,7 +133,7 @@ to setup
   set alpha 0.1                 ; default learning rate
   set beta 0.05                 ; default slowdown speed
   set delta 0.01                ; default decay rate
-  set gamma 0.1                 ; default knowledge transfer rate
+  set gamma helper_gamma        ; default knowledge transfer rate
 
   set-default-shape nodes "circle"
   set-default-shape tasks "triangle"
@@ -141,7 +144,7 @@ to setup
     set working-on nobody
 
     set color red
-    let radius 10
+    let radius 8
     let angle 360 / num_agents * who
     setxy (radius * cos angle) (radius * sin angle)
   ]
@@ -169,10 +172,22 @@ to create-task
   create-tasks 1 [
     set color yellow
     set size 1
+    set breed tasks
     setxy 0 0
     set required-capability n-values n_capabilities [random-float 1]
     set assigned-to nobody
     show (word "=> NEW TASK CREATED:  " map [ x -> precision x 2] required-capability)
+  ]
+end
+
+to pick-helper-nodes [curr_node]
+  let free-nodes nodes with [working-on = nobody]
+  let helper_nodes n-of min ( list count free-nodes num_helpers) free-nodes
+  if count free-nodes > 0 [
+    ask curr_node [create-links-with other helper_nodes]
+    ask helper_nodes [
+      set working-on curr_node
+    ]
   ]
 end
 
@@ -181,12 +196,13 @@ to assign-task-randomly-to-free-node
   let unassigned-tasks tasks with [assigned-to = nobody]
   ask unassigned-tasks [
     ; Get all nodes that have no task assigned
-    let free-nodes nodes with [not any? tasks with [assigned-to = myself]]
+    let free-nodes nodes with [working-on = nobody]
 
     if count free-nodes > 0 [
 
       ; Select a free node randomly
       let random-node one-of free-nodes
+
       ; Assign the task to the free node
       set assigned-to random-node
 
@@ -198,6 +214,8 @@ to assign-task-randomly-to-free-node
 
       ; Move task to the assigned node's position
       move-to random-node
+
+      pick-helper-nodes random-node
     ]
   ]
   set unassigned-tasks tasks with [assigned-to = nobody]
@@ -207,15 +225,17 @@ to assign-task-randomly-to-free-node
     let angle 360 / count unassigned-tasks * who
     setxy (radius * cos angle) (radius * sin angle)
   ]
+
 end
 
 ; Main task execution procedure
 to work-on-task
-  let assined-nodes nodes with [any? tasks with [assigned-to = myself]]
+  let assined-nodes nodes with [working-on != nobody and [breed] of working-on = tasks]
   ask assined-nodes [
     let p-success calculate-success-probability
       capability
       [required-capability] of working-on
+      self
     ; Attempt task with calculated probability
     ifelse random-float 1.0 < p-success [
       show (word "=> EXECUTION SUCCESS: " precision p-success 3)
@@ -230,16 +250,28 @@ to work-on-task
       if learning_type = "reinforcement" [
         update-capability-reinforcement self working-on
       ]
+
+      ask nodes with [working-on = myself] [
+        set working-on nobody
+      ]
+      if count link-neighbors > 0 [
+        ask link-neighbors [
+          ask link-with myself [
+            die  ; Delete each link connected to node1
+          ]
+        ]
+      ]
+
       ask working-on [ die ]
       set working-on nobody
       set experience experience + 1
+
     ] [
       show (word "=> EXECUTION FAILED:  " working-on " | p=" precision p-success 3)
     ]
   ]
 
 end
-
 
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -406,6 +438,31 @@ NIL
 NIL
 NIL
 1
+
+CHOOSER
+921
+43
+1059
+88
+num_helpers
+num_helpers
+0 1 2 3
+3
+
+SLIDER
+745
+295
+917
+328
+helper_gamma
+helper_gamma
+0
+1
+0.7
+0.05
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
