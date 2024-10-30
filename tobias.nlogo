@@ -1,149 +1,244 @@
-turtles-own [capabilities task is_working]  ;; Each turtle will have a list of capabilities
-breed [tasks task-agent]  ;; Create a new breed for tasks
-tasks-own [required-capabilities assigned-to]  ;; Tasks have required capabilities and know who they're assigned to
+; Global variables for learning parameters
+globals [
+  alpha            ; learning rate
+  beta             ; slowdown speed for experience-based learning
+  delta            ; decay rate
+  gamma            ; knowledge transfer rate
+]
+
+breed [nodes node ]
+breed [tasks task ]
+
+; Define agent-specific variables
+nodes-own [
+  capability    ; current capability level
+  experience    ; number of completed tasks
+  working-on    ; the task the node is working on
+]
+
+; Define the task-specific variables
+tasks-own [
+  required-capability    ; difficulty of task (needed capabilities)
+  assigned-to            ; node the task is assigned to
+]
+
+
+; Calculate success probability for a given agent capability and task requirement
+to-report calculate-success-probability [agent-capability task-requirement]
+  let probs map [ x -> min (list 1 (item x agent-capability / item x task-requirement)) ] (range n_capabilities)
+  report reduce [ [a b] -> a * b ] probs
+end
+
+; Option 1: Linear Learning
+to update-capability-linear [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [required-capability] of task-node
+
+  let new-capability map [ x -> item x old-capability + max ( list 0 (alpha * (item x task-requirement - item x old-capability))) ] (range n_capabilities)
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+    set experience experience + 1
+  ]
+end
+
+; Option 2: Experience-Based Learning
+to update-capability-experience-based [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [required-capability] of task-node
+  let current-experience [experience] of current-node
+
+  let new-capability map [
+    x -> item x old-capability + max (list 0
+    (alpha *
+      (item x task-requirement - item x old-capability) * exp(-1 * beta * current-experience)))
+  ] (range n_capabilities)
+
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+    set experience experience + 1
+  ]
+end
+
+; Option 3: Reinforcement Learning with Sigmoid Function
+to-report sigmoid [x]
+  report 1 / (1 + exp(-1 * x))
+end
+
+to update-capability-reinforcement [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [required-capability] of task-node
+
+  ; Calculate task difficulty as the ratio of required to current capability
+  let task-difficulty task-requirement / old-capability
+
+  let new-capability map [ x -> item x old-capability +
+    (alpha * (item x task-requirement - item x old-capability) *
+     sigmoid(task-difficulty - 1))  ; Subtract 1 to center the sigmoid
+  ] (range n_capabilities)
+
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+    set experience experience + 1
+  ]
+end
+
+; Learning Decay
+to apply-learning-decay [current-node]
+  let old-capability [capability] of current-node
+  let new-capability old-capability * (1 - delta)
+
+  ask current-node [
+    set capability new-capability
+  ]
+end
+
+; Knowledge Transfer
+to transfer-knowledge [weak-node strong-node]
+  let weak-capability [capability] of weak-node
+  let strong-capability [capability] of strong-node
+
+  let new-capability weak-capability +
+    (gamma * (strong-capability - weak-capability))
+
+  ask weak-node [
+    set capability new-capability
+  ]
+end
+
+; Helper procedure to find capable helper
+to-report find-helper [current-node task-node]
+  let required-cap [required-capability] of task-node
+  let potential-helpers nodes with [
+    who != [who] of current-node and
+    capability >= required-cap
+  ]
+
+  ifelse any? potential-helpers [
+    report min-one-of potential-helpers [
+      distance current-node
+    ]
+  ] [
+    report nobody
+  ]
+end
 
 to setup
   clear-all
-  set-default-shape turtles "circle"
-  set-default-shape tasks "triangle"  ;; Set task shape to triangle
+  set alpha 0.1                 ; default learning rate
+  set beta 0.05                 ; default slowdown speed
+  set delta 0.01                ; default decay rate
+  set gamma 0.1                 ; default knowledge transfer rate
 
-  create-turtles 10 [
-    set capabilities n-values n_capabilities [random-float 0.2]
+  set-default-shape nodes "circle"
+  set-default-shape tasks "triangle"
+
+  create-nodes num_agents [
+    set capability n-values n_capabilities [random-float capability_limit]
+    set experience 0
+    set working-on nobody
+
     set color red
-
     let radius 10
-    let angle 360 / 10 * who
+    let angle 360 / num_agents * who
     setxy (radius * cos angle) (radius * sin angle)
   ]
-  print-members
 
   reset-ticks
 end
 
 to go
   show (word "========== ROUND " ticks " ==========")
-  print-members
-  print-tasks
   create-task
-  move-tasks-to-assigned
-  create-task
-  move-tasks-to-assigned
-  work-on-tasks
+  assign-task-randomly-to-free-node
+  work-on-task
   show (word "============= END " ticks " ==========")
   tick
 end
 
-to print-members
-  ask turtles with [breed = turtles] [
-    show map [ x -> precision x 2] capabilities
-  ]
-end
-
-to print-tasks
-  ask turtles with [breed = tasks] [
-    let this-fit capability-fit required-capabilities ([capabilities] of assigned-to)
-    show (word "Task req.: "map [ x -> precision x 2] required-capabilities " Success p: " precision this-fit 2)
+to print-nodes
+  show (word "CAPABILITIES OF ALL NODES")
+  ask nodes [
+    show map [ x -> precision x 2] capability
   ]
 end
 
 to create-task
-  ; First check if there are any free agents
-  let free-agents turtles with [breed = turtles and not any? tasks with [assigned-to = myself]]
-
-  ; Only create task if there are free agents
-  if any? free-agents [
-    create-tasks 1 [
-      set color yellow
-      set size 1.5
-      setxy 0 0
-
-      set required-capabilities n-values n_capabilities [random-float 1]
-
-      let chosen-turtle one-of free-agents
-      set assigned-to chosen-turtle
-
-      show (word "New task created and assigned to turtle " [who] of assigned-to)
-      show (word "Required capabilities: " required-capabilities)
-    ]
+  create-tasks 1 [
+    set color yellow
+    set size 1
+    setxy 0 0
+    set required-capability n-values n_capabilities [random-float 1]
+    set assigned-to nobody
+    show (word "=> NEW TASK CREATED:  " map [ x -> precision x 2] required-capability)
   ]
 end
 
-to work-on-tasks
-  ask turtles with [breed = turtles] [
-    let my-task one-of tasks with [(assigned-to = myself)]
-    if my-task != nobody [
-      ; First check if there's a better agent for the task
-      let current-fit capability-fit ([required-capabilities] of my-task) capabilities
-      let better-agent find-better-agent my-task current-fit
+; Procedure to randomly assign a task to a free node
+to assign-task-randomly-to-free-node
+  let unassigned-tasks tasks with [assigned-to = nobody]
+  ask unassigned-tasks [
+    ; Get all nodes that have no task assigned
+    let free-nodes nodes with [not any? tasks with [assigned-to = myself]]
 
-      ifelse better-agent != nobody [
-        ; Transfer task to better agent
-        transfer-task my-task better-agent
-      ] [
-        ; Try to solve the task
-        attempt-task-solution my-task current-fit
+    if count free-nodes > 0 [
+
+      ; Select a free node randomly
+      let random-node one-of free-nodes
+      ; Assign the task to the free node
+      set assigned-to random-node
+
+      show (word "=> TASK ASSIGED TO:   " random-node)
+
+      ask random-node [
+        set working-on myself
       ]
+
+      ; Move task to the assigned node's position
+      move-to random-node
     ]
   ]
-end
-
-to move-tasks-to-assigned
-  ask tasks [
-    setxy [xcor] of assigned-to [ycor] of assigned-to
+  set unassigned-tasks tasks with [assigned-to = nobody]
+  show (word "=> UNASSIGED TASKS:   " count unassigned-tasks)
+  ask unassigned-tasks [
+    let radius 3
+    let angle 360 / count unassigned-tasks * who
+    setxy (radius * cos angle) (radius * sin angle)
   ]
 end
 
-to-report capability-fit [required agent-capabilities]
-  let differences map [ x -> min list (item x agent-capabilities / item x required) 1 ] (range length required)
-  let avg_difference mean differences
-  report avg_difference
-end
+; Main task execution procedure
+to work-on-task
+  let assined-nodes nodes with [any? tasks with [assigned-to = myself]]
+  ask assined-nodes [
+    let p-success calculate-success-probability
+      capability
+      [required-capability] of working-on
+    ; Attempt task with calculated probability
+    ifelse random-float 1.0 < p-success [
+      show (word "=> EXECUTION SUCCESS: " precision p-success 3)
 
-to-report find-better-agent [current-task current-fit]
-  let current-assigned [assigned-to] of current-task
-  let better-agent nobody
-  let best-fit current-fit
-
-  ; Only consider agents that don't have any tasks assigned
-  ask turtles with [
-    breed = turtles and
-    self != current-assigned and
-    not any? tasks with [assigned-to = myself]
-  ] [
-    let this-fit capability-fit ([required-capabilities] of current-task) capabilities
-    if this-fit > best-fit [
-      set better-agent self
-      set best-fit this-fit
+      ; Update capabilities based on learning type
+      if learning_type = "linear" [
+        update-capability-linear self working-on
+      ]
+      if learning_type = "experience" [
+        update-capability-experience-based self working-on
+      ]
+      if learning_type = "reinforcement" [
+        update-capability-reinforcement self working-on
+      ]
+      ask working-on [ die ]
+      set working-on nobody
+      set experience experience + 1
+    ] [
+      show (word "=> EXECUTION FAILED:  " working-on " | p=" precision p-success 3)
     ]
   ]
 
-  report better-agent
 end
-
-to transfer-task [current-task new-agent]
-  ask current-task [
-    show (word "Task transferred from turtle " [who] of assigned-to " to turtle " [who] of new-agent)
-    set assigned-to new-agent
-  ]
-end
-
-to attempt-task-solution [current-task fit]
-  let success-probability fit
-  if random-float 1.0 < success-probability [
-    show (word "Turtle " who " solved task successfully! (fit: " precision fit 2 ")")
-
-    show (word "Update: " capabilities)
-
-    let task-reqs [required-capabilities] of current-task
-    set capabilities map [ x -> min list 1 (item x capabilities + (learning-rate * (item x task-reqs - item x capabilities))) ]
-                        (range length capabilities)
-
-    show (word "To: " capabilities)
-
-    ask current-task [ die ]
-  ]
-end
-
 
 
 @#$#@#$#@
@@ -192,25 +287,25 @@ NIL
 1
 
 SLIDER
-32
-127
-204
-160
+745
+198
+917
+231
 num_agents
 num_agents
 2
 20
-6.0
+10.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-32
-204
-204
-237
+745
+151
+917
+184
 n_capabilities
 n_capabilities
 0
@@ -222,10 +317,10 @@ NIL
 HORIZONTAL
 
 BUTTON
-65
-278
-128
-311
+34
+143
+97
+176
 go
 go
 T
@@ -239,10 +334,10 @@ NIL
 1
 
 SLIDER
-34
-396
-206
-429
+747
+245
+919
+278
 learning-rate
 learning-rate
 0
@@ -254,19 +349,63 @@ NIL
 HORIZONTAL
 
 SLIDER
-58
-523
-230
-556
-secialization
-secialization
+745
+106
+917
+139
+capability_limit
+capability_limit
 0
 1
-0.9
+0.2
 0.05
 1
 NIL
 HORIZONTAL
+
+BUTTON
+34
+95
+109
+128
+go one
+go
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+CHOOSER
+746
+47
+884
+92
+learning_type
+learning_type
+"linear" "experience" "reinforcement"
+0
+
+BUTTON
+37
+198
+171
+231
+Print Capabilitys
+print-nodes
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
