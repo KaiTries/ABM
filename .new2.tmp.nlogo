@@ -1,218 +1,193 @@
+; ==============================================================
+; ==============      DEFINITIONS        =======================
+; ==============================================================
+
 globals [
-  tasks-overflowed ; counter value of lost tasks
-  max-max-capacity ; max number of tasks that an agent can have in his stack
-  lazy-ticks;
+  tasks-overflowed
+  tasks-finished
+  stack-limit
+
+  beta             ; slowdown speed for experience-based learning
+  delta            ; decay rate
+  gamma            ; knowledge transfer rate
 ]
 
-breed [nodes node ]
-breed [tasks task ]
-
+breed [ nodes node ]
 nodes-own [
-  max-capacity ; stack size
-  stack-of-tasks ; list of tasks
-  capability ; capabilities
-  working-on ; current task or none
+  max-capacity
+  stack-of-tasks
+  working-on
+  capability
 ]
 
+breed [ tasks task ]
 tasks-own [
-  difficulty ; difficulty rank
-  task-type ; type of task
-  time ; time it takes to solve
-  time-left; time still left until solved
+  task-type ; [0 0 1] * difficulty
+  initial-time
+  time-left
 ]
 
-; setup function that defines global variables and initializes system
-to setup
-  clear-all
-  reset-ticks
-  set max-max-capacity 5
-  setup-environment
-end
+; ==============================================================
+; ==============     SETUP & REPORTERS        ==================
+; ==============================================================
 
-; helper function to initialize environment
-to setup-environment
-  setup-nodes number-of-nodes
-end
-
-; initializes all nodes with average capabilities
-to setup-nodes [n]
+to setup-nodes [ n ]
   create-nodes n [
-    set max-capacity random max-max-capacity + 1
+    set max-capacity random stack-limit + 1
     set stack-of-tasks []
     set working-on nobody
     set capability (list
-      (0.4 + random-float 0.2)
-      (0.4 + random-float 0.2)
-      (0.4 + random-float 0.2)
+      (2 + random-float 1)
+      (2 + random-float 1)
+      (2 + random-float 1)
     )
+
+    set color red
+    let radius 8
+    let angle 360 / n * who
+    setxy (radius * cos angle) (radius * sin angle)
   ]
 end
 
-; creates a number of tasks and assigns them to random nodes
-to instantiate-tasks
-  create-tasks number-of-tasks [
-    set difficulty random 5 + 1
-    set task-type one-of [[1 0 0] [0 1 0] [0 0 1]]
-    let target-node one-of nodes
-    assign-task-to-node self target-node
+to instantiate-tasks [ n ]
+  create-tasks n [
+    let difficulty random 5 + 1
+    set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
+    set task-type (map [ x -> x * difficulty ] task-type)
+    set color yellow
+    setxy 0 0
+    assign-task-to-node self
   ]
 end
 
-; function that initially assigns a task to a node
-; the task-time is created by multipying capability of the node with the difficulty
-to assign-task-to-node [ #t #n ]
-  ask #n [
-    set stack-of-tasks lput #t stack-of-tasks
-    show (word "Received task of type " [task-type] of #t  " and difficulty " [difficulty] of #t )
+to assign-task-to-node [ t ]
+  let target-node one-of nodes
+  ask t [
+    move-to target-node
   ]
-end
-
-; function that enables agent #a to try and give task #t to some other agent
-; criteria to choose is other agent with the lowest amount of tasks piled up
-to transfer-task [#t #a]
-  let nodes-tried []
-  let valid-node nobody
-  let candidate nobody
-  let fewest-tasks 1e+100 ; Track the smallest number of tasks found
-  let notFound true
-
-
-  ; standard BFS
-  while [valid-node = nobody and length nodes-tried < count nodes and notFound] [
-    set candidate one-of nodes with [ not member? self nodes-tried ]
-    set nodes-tried lput candidate nodes-tried
-
-
-    if candidate != #a and length [stack-of-tasks] of candidate < [max-capacity] of candidate [
-
-      let candidate-tasks length [stack-of-tasks] of candidate
-
-      if candidate-tasks < fewest-tasks [
-        set fewest-tasks candidate-tasks
-        set valid-node candidate
-        show (word "found candidate " valid-node)
-        if candidate-tasks = 0 [
-          set notFound false
-        ]
-      ]
-    ]
-  ]
-
-  ifelse valid-node = nobody [
-    show (word "No suitable node found to transfer the task. Discarding!")
-    set tasks-overflowed tasks-overflowed + 1
-    ask #a [
-      if member? #t stack-of-tasks [
-        set stack-of-tasks remove #t stack-of-tasks
-        show (word "Task " #t " removed from node " self " after transfer.")
-      ]
-    ]
-    ask #t [
-      die
-    ]
-  ] [
-    ; Transfer the task to the valid node
-    ask valid-node [
-      set stack-of-tasks lput #t stack-of-tasks
-      show (word "Task transferred to node " self " with smallest stack.")
-    ]
-    ; Remove the task from the original node's stack-of-tasks
-    ask #a [
-    if member? #t stack-of-tasks [
-      set stack-of-tasks remove #t stack-of-tasks
-      show (word "Task removed from node " self " after transfer.")
-    ]
-    ]
+  ask target-node [
+    set stack-of-tasks lput t stack-of-tasks
+    show (word "Received task " t " of type " [task-type] of t)
   ]
 end
 
 
+to-report total-tasks-overflowed
+  report sum tasks-overflowed
+end
+
+to-report total-tasks-finished
+  report sum tasks-finished
+end
+
+; ==============================================================
+; ==============     MAIN SIMULATION FLOW        ===============
+; ==============================================================
 
 
-to handle-random-task-assigned-overflow [ ag ]
-  ; received a task through environment but at max capacity already need to transfer
-  ; transfer should be with or without penalty?
-  show(word "Received a task but do not have any capacity for it!")
-  ask ag [
-    let overflowing-task item 0 stack-of-tasks
-    transfer-task overflowing-task self
+to setup
+  clear-all
+  reset-ticks
+  set-default-shape nodes "circle"
+  set-default-shape tasks "triangle"
+  set tasks-overflowed [0 0 0 0 0]
+  set tasks-finished [0 0 0 0 0]
+  set stack-limit 5
+  set beta 0.05                 ; default slowdown speed
+  set delta 0.01                ; default decay rate
+  setup-nodes number-of-nodes
+end
+
+to go
+  tick
+  show (word "========== ROUND " ticks " ==========")
+  instantiate-tasks number-of-tasks
+  agent-loop
+  show (word "============= END " ticks " ==========")
+  if ticks = 100 [
+    stop
   ]
 end
 
 
-to handle-giving-up-on-task [#t #a]
-  ask #a [
-    show(word "Giving up on task: " working-on)
-    let task-vector [ task-type ] of working-on
-    let d [ difficulty ] of working-on
-    let old capability
-    set capability (map [ [x y] -> x + (y * (learning-rate / 100) * (1 - x) * (1 - d)) ] capability task-vector)
-    show (word "Task of type " task-vector " and difficulty " d " given up - decreased capability from " old " to " capability)
-    transfer-task working-on #a
-    set working-on nobody
+; ==============================================================
+; ==============       AGENT FUNCTIONS           ===============
+; ==============================================================
+
+
+to agent-loop
+  exchange-new-tasks
+
+  ask nodes [
+    reason self
   ]
 end
 
-to start-working-on-task [ ag ]
-  ask ag [
-    let newTask item 0 stack-of-tasks
-    set stack-of-tasks but-first stack-of-tasks
-
-    let task-time 0
-    let dot-product sum (map [ [ x y ] -> x * y ] [task-type] of newTask capability)
-    set task-time ([difficulty] of newTask) / dot-product
-    ask newTask [
-      set time ceiling task-time
-      set time-left time
-      show(word "Start working on task " newTask " expected time " time)
-    ]
-    set working-on newTask
-  ]
-end
-
-; MAIN AGENT LOOP
-to agent-loop [ #a ]
-  ask #a [
-    ; CHECK IF OVERFLOW
+to exchange-new-tasks
+  ask nodes [
     if length stack-of-tasks > max-capacity [
       handle-random-task-assigned-overflow self
     ]
+  ]
+end
 
-    ; CHECK IF CURRENTLY WORKING
+
+to reason [ agent ]
+  ask agent [
+    if length stack-of-tasks = 0 and working-on = nobody [
+      ask-for-task self
+    ]
+    if length stack-of-tasks > 0 and working-on = nobody [
+      start-working self
+    ]
+
+
+
     ifelse working-on != nobody [
-      ; task fertig time left 0
-      ifelse [ time-left ] of working-on = 0 [
-        let task-vector [ task-type ] of working-on
-        let d [ difficulty ] of working-on
-        let old capability
-        set capability (map [ [x y] -> x + (y * (learning-rate / 100) * (1 - x) * d) ] capability task-vector)
-        show (word "Task of type " task-vector " and difficulty " d " completed - increased capability from " old " to " capability)
+      ask working-on [
+        set time-left time-left - 1
+      ]
+
+      update-capability-linear self working-on
+
+      if [time-left] of working-on = 0 [
+        let tdif sum [task-type] of working-on
+        set tdif tdif - 1
+        set tasks-finished replace-item tdif tasks-finished (item tdif tasks-finished + 1)
+        show(word "Finished task " working-on)
         ask working-on [
           die
         ]
         set working-on nobody
       ]
-      [
-        ; chance to give up
-        ifelse random-float 0.7 > sum (map [ [ x y ] -> x * y ] [task-type] of working-on capability)  [
-          handle-giving-up-on-task working-on self
-        ]
-        ; time left decreases
-        [
-          ask working-on [
-            set time-left time-left - 1
-          ]
-          show(word "Working on task: " working-on " remaining time: " [time-left] of working-on)
-        ]
-      ]
 
-
-    ; IF NOT WORKING START NEW TASK
     ] [
-      ifelse length stack-of-tasks > 0 [
-        start-working-on-task self
-      ] [
-        show(word "No tasks left, asking collegues if they need help")
+      apply-learning-decay self
+    ]
+
+  ]
+end
+
+to handle-random-task-assigned-overflow [ agent ]
+  ask agent [
+    ; take overflowing task from agent
+    let overflowing-task last stack-of-tasks
+    set stack-of-tasks but-last stack-of-tasks
+    show(word "Received Task " overflowing-task " but already at full Capacity trying to find someone.")
+
+    ; try to give it to some other node that has capacity
+    let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity]
+    ifelse count available-nodes > 0 [
+      give-task-to-node-with-least-tasks available-nodes overflowing-task self
+    ]
+    ; else if no one has any capacity task will go to waste
+    [
+      show(word "Found no one to solve " overflowing-task " discarding.")
+      let tdif sum [task-type] of overflowing-task
+      set tdif tdif - 1
+      set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
+      ask overflowing-task [
+        die
       ]
     ]
   ]
@@ -220,24 +195,111 @@ end
 
 
 
-to go
-  if ticks > 1000 [
-    show(word "finished " ticks)
-    stop
+to give-task-to-node-with-least-tasks [ agents t from ]
+  let node-with-smallest-stack min-one-of agents [length stack-of-tasks]
+  ask node-with-smallest-stack [
+    set stack-of-tasks lput t stack-of-tasks
+    show(word "Received Task " t " from " from ".")
   ]
-  show(word "-------- tick " ticks " initiated ----------" )
-  instantiate-tasks
-  show( "-------- tasks assigned ----------" )
-  ask nodes [
-    agent-loop self
-  ]
-  if all? nodes [(length stack-of-tasks = 0) and (working-on = nobody) ] [
-    show( "All tasks are completed, stopping the simulation" )
-    stop
-  ]
-  show(word "-------- tick " ticks " completed ----------" )
-  tick
 end
+
+; currently just takes the last task in the stack of the node with the larges stack
+; takes it only if it is better at solving that task
+to ask-for-task [ agent ]
+  let others-with-tasks nodes with [self != agent and length stack-of-tasks > 0]
+  if count others-with-tasks > 0 [
+    let node-with-largest-stack max-one-of others-with-tasks [length stack-of-tasks]
+    let newTask last [stack-of-tasks] of node-with-largest-stack
+
+    let my-capability sum ( map [[x y] -> x * y] [capability] of agent [task-type] of newTask )
+    let node-capability sum ( map [[x y] -> x * y] [capability] of node-with-largest-stack [task-type] of newTask )
+
+    if my-capability > node-capability [
+
+      ask node-with-largest-stack [
+        set stack-of-tasks but-last stack-of-tasks
+      ]
+      ask agent [
+        set stack-of-tasks lput newTask stack-of-tasks
+        show(word "Took task " newTask " from agent " node-with-largest-stack)
+      ]
+    ]
+  ]
+end
+
+
+to start-working [ agent ]
+  ask agent [
+    let nextTask last stack-of-tasks
+    set stack-of-tasks but-last stack-of-tasks
+
+    ; agent gives estimate how long task takes
+    let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
+
+    ask nextTask [
+      set initial-time floor task-time
+      set time-left initial-time
+    ]
+
+    set working-on nextTask
+    show (word "Starting work on " working-on  " expected time " [initial-time] of working-on)
+  ]
+end
+
+
+; ==============================================================
+; ===========       LEARNING FUNCTIONS           ===============
+; ==============================================================
+
+; Learning Decay
+to apply-learning-decay [current-node]
+  let old-capability [capability] of current-node
+  let new-capability map [ x -> x * (1 - delta) ] old-capability
+
+  ask current-node [
+    set capability new-capability
+  ]
+  show (word "=> DECAY CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+
+end
+
+; Option 1: Linear Learning
+to update-capability-linear [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
+
+  let new-capability map [ x -> item x old-capability + max ( list 0 (alpha * (item x task-requirement - item x old-capability))) ] (range 3)
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+  ]
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -324,7 +386,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-4.0
+10.0
 1
 1
 NIL
@@ -335,12 +397,12 @@ SLIDER
 235
 297
 268
-learning-rate
-learning-rate
+alpha
+alpha
 0
-100
-5.0
 1
+0.2
+0.1
 1
 NIL
 HORIZONTAL
@@ -351,19 +413,19 @@ MONITOR
 297
 110
 Tasks unable to complete
-tasks-overflowed
+total-tasks-overflowed
 17
 1
 11
 
 PLOT
-625
-50
-1045
-380
-Tasks lost
+805
+20
+1225
+350
+TASKS LOST
 ticks
-Tasks lost
+Tasks
 0.0
 10.0
 0.0
@@ -372,12 +434,50 @@ true
 true
 "" ""
 PENS
-"tasks lost" 1.0 0 -16777216 true "" "plot tasks-overflowed"
+"dif 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
+"dif 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
+"dif 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
+"dif 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
+"dif 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
+
+MONITOR
+130
+10
+295
+55
+Tasks completed
+total-tasks-finished
+17
+1
+11
+
+PLOT
+390
+20
+795
+350
+TASKS FINISHED
+time
+amount
+0.0
+10.0
+0.0
+10.0
+true
+true
+"" ""
+PENS
+"dif 1" 1.0 0 -7500403 true "" "plot item 0 tasks-finished"
+"dif 2" 1.0 0 -10899396 true "" "plot item 1 tasks-finished"
+"dif 3" 1.0 0 -955883 true "" "plot item 2 tasks-finished"
+"dif 4" 1.0 0 -5825686 true "" "plot item 3 tasks-finished"
+"dif 5" 1.0 0 -2674135 true "" "plot item 4 tasks-finished"
 
 @#$#@#$#@
 ## WHAT IS IT?
 
-This model draws a Voronoi diagram by using turtles to define the boundaries between polygons that denote the region that is closest to a given point.  Voronoi diagrams resemble many phenomena in the world including cells, forest canopies, territories of animals, fur and shell patterns, crystal growth and grain growth, cracks in dried mud and other geological phenomena, road networks, and so on.  Voronoi diagrams are useful in computer graphics, vision and path planning for robots, marketing, and other applications.
+This model aims to show that specialisation naturally emerges in organizations. And that
+this specialisation of individuals improves the overall performance / effectiveness of the system as a whole.
 
 ## HOW IT WORKS
 
