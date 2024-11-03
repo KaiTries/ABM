@@ -7,9 +7,16 @@ globals [
   tasks-finished
   stack-limit
 
+  min-value        ; arbitrary numbers 1
+  max-value        ; arbitrary numbers 5
+
   beta             ; slowdown speed for experience-based learning
   delta            ; decay rate
   gamma            ; knowledge transfer rate
+
+
+  n-tasks          ; counter wieviele tasks gabs
+  fin-ttl          ; wie lange lebt in der regel ein task
 ]
 
 breed [ nodes node ]
@@ -23,6 +30,7 @@ nodes-own [
 breed [ tasks task ]
 tasks-own [
   task-type ; [0 0 1] * difficulty
+  age
   initial-time
   time-left
 ]
@@ -37,12 +45,15 @@ to setup-nodes [ n ]
     set stack-of-tasks []
     set working-on nobody
     set capability (list
-      (2 + random-float 1)
-      (2 + random-float 1)
-      (2 + random-float 1)
+      (2.5)
+      (2.5)
+      (2.5)
     )
 
-    set color red
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
     let radius 8
     let angle 360 / n * who
     setxy (radius * cos angle) (radius * sin angle)
@@ -54,7 +65,14 @@ to instantiate-tasks [ n ]
     let difficulty random 5 + 1
     set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
     set task-type (map [ x -> x * difficulty ] task-type)
+    set age 0
+
+    let tdif difficulty - 1
+    set n-tasks replace-item tdif n-tasks (item tdif n-tasks + 1)
+
+
     set color yellow
+    set size 0.5
     setxy 0 0
     assign-task-to-node self
   ]
@@ -80,6 +98,13 @@ to-report total-tasks-finished
   report sum tasks-finished
 end
 
+to-report scale-component [value]
+  report round (255 * ((value - min-value) / (max-value - min-value)))
+end
+
+
+
+
 ; ==============================================================
 ; ==============     MAIN SIMULATION FLOW        ===============
 ; ==============================================================
@@ -88,26 +113,42 @@ end
 to setup
   clear-all
   reset-ticks
+
   set-default-shape nodes "circle"
   set-default-shape tasks "triangle"
   set tasks-overflowed [0 0 0 0 0]
   set tasks-finished [0 0 0 0 0]
+  set n-tasks [0 0 0 0 0]
+  set fin-ttl [0 0 0 0 0]
+  set min-value 1
+  set max-value 5
   set stack-limit 5
   set beta 0.05                 ; default slowdown speed
   set delta 0.01                ; default decay rate
   setup-nodes number-of-nodes
+
+  setup-plots
 end
+
 
 to go
   tick
   show (word "========== ROUND " ticks " ==========")
   instantiate-tasks number-of-tasks
   agent-loop
+  tasks-maintanance
   show (word "============= END " ticks " ==========")
-  if ticks = 100 [
+  if ticks >= stop-at-ticks [
     stop
   ]
 end
+
+to tasks-maintanance
+  ask tasks [
+    set age age + 1
+  ]
+end
+
 
 
 ; ==============================================================
@@ -148,12 +189,19 @@ to reason [ agent ]
         set time-left time-left - 1
       ]
 
-      update-capability-linear self working-on
+
+
 
       if [time-left] of working-on = 0 [
         let tdif sum [task-type] of working-on
         set tdif tdif - 1
         set tasks-finished replace-item tdif tasks-finished (item tdif tasks-finished + 1)
+
+
+
+        set fin-ttl replace-item tdif fin-ttl (item tdif fin-ttl + [age] of working-on)
+
+        update-capabilities self working-on
         show(word "Finished task " working-on)
         ask working-on [
           die
@@ -186,6 +234,8 @@ to handle-random-task-assigned-overflow [ agent ]
       let tdif sum [task-type] of overflowing-task
       set tdif tdif - 1
       set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
+
+
       ask overflowing-task [
         die
       ]
@@ -251,6 +301,35 @@ end
 ; ===========       LEARNING FUNCTIONS           ===============
 ; ==============================================================
 
+
+to update-capabilities [current-node task-node]
+  ; Update capabilities based on learning type
+  if learning_type = "linear" [
+    update-capability-linear current-node working-on
+  ]
+  if learning_type = "experience" [
+    update-capability-experience-based current-node working-on
+  ]
+  if learning_type = "reinforcement" [
+    update-capability-reinforcement current-node working-on
+  ]
+  if learning_type = "balanced" [
+    update-capability-balanced current-node working-on
+  ]
+
+  ; update color
+  let r scale-component (item 0 capability)
+  let g scale-component (item 1 capability)
+  let b scale-component (item 2 capability)
+  ask current-node [
+    set color rgb r g b
+  ]
+
+end
+
+
+
+
 ; Learning Decay
 to apply-learning-decay [current-node]
   let old-capability [capability] of current-node
@@ -260,6 +339,69 @@ to apply-learning-decay [current-node]
     set capability new-capability
   ]
   show (word "=> DECAY CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+
+end
+
+
+to-report adjust-capabilities [old-capability tentative-new-capability]
+  let sum-old sum old-capability
+  let new-capability map [ x -> max list 1 (min list 5 x) ] tentative-new-capability
+  let sum-new sum new-capability
+  let delta-sum sum-new - sum-old
+
+  if abs delta-sum < 0.0001 [ report new-capability ]
+
+  let indices range length new-capability
+
+  ifelse delta-sum > 0 [
+    ; Need to decrease capabilities
+    let adjustable-indices filter [ i -> item i new-capability > 1 ] indices
+    let total-decrease sum map [ i -> (item i new-capability) - 1 ] adjustable-indices
+    if total-decrease = 0 [ report new-capability ]  ; No room to adjust
+
+    let factor delta-sum / total-decrease
+    foreach adjustable-indices [i ->
+      let cap item i new-capability
+      let reduction factor * (cap - 1)
+      set new-capability replace-item i new-capability (cap - reduction)
+    ]
+  ] [
+    ; Need to increase capabilities
+    let adjustable-indices filter [ i -> item i new-capability < 5 ] indices
+    let total-increase sum map [ i -> 5 - (item i new-capability) ] adjustable-indices
+    if total-increase = 0 [ report new-capability ]  ; No room to adjust
+
+    let factor (- delta-sum) / total-increase
+    foreach adjustable-indices [i ->
+      let cap item i new-capability
+      let increment factor * (5 - cap)
+      set new-capability replace-item i new-capability (cap + increment)
+    ]
+  ]
+
+  report new-capability
+end
+
+
+
+; Option 4: Balanced Learning
+to update-capability-balanced [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
+
+  ; Step 1: Calculate desired changes
+  let delta-capability map [ x -> alpha * (item x task-requirement - item x old-capability)] (range length old-capability)
+
+  ; Step 2: Apply tentative changes
+  let tentative-new-capability map [ x -> item x old-capability + item x delta-capability  ] (range length old-capability)
+
+  ; Step 3 & 4: Adjust capabilities to preserve total sum and stay within bounds
+  let new-capability adjust-capabilities old-capability tentative-new-capability
+
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+  ]
 
 end
 
@@ -275,9 +417,45 @@ to update-capability-linear [current-node task-node]
   ]
 end
 
+; Option 2: Experience-Based Learning
+to update-capability-experience-based [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
 
+  let new-capability map [
+    x -> item x old-capability + max (list 0
+    (alpha *
+      (item x task-requirement - item x old-capability) * exp(-1 * beta)))
+  ] (range 3)
 
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+  ]
+end
 
+; Option 3: Reinforcement Learning with Sigmoid Function
+to-report sigmoid [x]
+  report 1 / (1 + exp(-1 * x))
+end
+
+to update-capability-reinforcement [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
+
+  ; Calculate task difficulty as the ratio of required to current capability
+  let task-difficulty task-requirement / old-capability
+
+  let new-capability map [ x -> item x old-capability +
+    (alpha * (item x task-requirement - item x old-capability) *
+     sigmoid(task-difficulty - 1))  ; Subtract 1 to center the sigmoid
+  ] (range 3)
+
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+  ]
+end
 
 
 
@@ -329,10 +507,10 @@ ticks
 30.0
 
 BUTTON
-230
-370
-292
-403
+640
+460
+702
+493
 NIL
 setup
 NIL
@@ -354,17 +532,17 @@ number-of-nodes
 number-of-nodes
 1
 100
-25.0
+50.0
 1
 1
 NIL
 HORIZONTAL
 
 BUTTON
-230
-415
-293
-448
+735
+460
+798
+493
 NIL
 go
 T
@@ -386,7 +564,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-10.0
+15.0
 1
 1
 NIL
@@ -401,7 +579,7 @@ alpha
 alpha
 0
 1
-0.2
+0.4
 0.1
 1
 NIL
@@ -432,13 +610,18 @@ Tasks
 10.0
 true
 true
-"" ""
+"set-plot-y-range 0 ((stop-at-ticks * number-of-tasks) / 5)\nset-plot-x-range 0 stop-at-ticks" ""
 PENS
 "dif 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
 "dif 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
 "dif 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
 "dif 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
 "dif 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
+"ALL 1" 1.0 0 -6459832 true "" "plot item 0 n-tasks"
+"ALL 2" 1.0 0 -1184463 true "" "plot item 1 n-tasks"
+"ALL 3" 1.0 0 -13840069 true "" "plot item 2 n-tasks"
+"ALL 4" 1.0 0 -14835848 true "" "plot item 3 n-tasks"
+"ALL 5" 1.0 0 -11221820 true "" "plot item 4 n-tasks"
 
 MONITOR
 130
@@ -463,15 +646,85 @@ amount
 10.0
 0.0
 10.0
+false
+true
+"set-plot-y-range 0 ((stop-at-ticks * number-of-tasks) / 5)\nset-plot-x-range 0 stop-at-ticks" ""
+PENS
+"FIN 1" 1.0 0 -7500403 true "" "plot item 0 tasks-finished"
+"FIN 2" 1.0 0 -10899396 true "" "plot item 1 tasks-finished"
+"FIN 3" 1.0 0 -955883 true "" "plot item 2 tasks-finished"
+"FIN 4" 1.0 0 -5825686 true "" "plot item 3 tasks-finished"
+"FIN 5" 1.0 0 -2674135 true "" "plot item 4 tasks-finished"
+"ALL 1" 1.0 0 -6459832 true "" "plot item 0 n-tasks"
+"ALL 2" 1.0 0 -1184463 true "" "plot item 1 n-tasks"
+"ALL 3" 1.0 0 -13840069 true "" "plot item 2 n-tasks"
+"ALL 4" 1.0 0 -14835848 true "" "plot item 3 n-tasks"
+"ALL 5" 1.0 0 -11221820 true "" "plot item 4 n-tasks"
+
+CHOOSER
+125
+280
+295
+325
+learning_type
+learning_type
+"linear" "experience" "reinforcement" "balanced"
+3
+
+SLIDER
+635
+420
+807
+453
+stop-at-ticks
+stop-at-ticks
+100
+10000
+250.0
+50
+1
+NIL
+HORIZONTAL
+
+PLOT
+810
+360
+1225
+610
+TTL OF FINISHED TASKS
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
 true
 true
 "" ""
 PENS
-"dif 1" 1.0 0 -7500403 true "" "plot item 0 tasks-finished"
-"dif 2" 1.0 0 -10899396 true "" "plot item 1 tasks-finished"
-"dif 3" 1.0 0 -955883 true "" "plot item 2 tasks-finished"
-"dif 4" 1.0 0 -5825686 true "" "plot item 3 tasks-finished"
-"dif 5" 1.0 0 -2674135 true "" "plot item 4 tasks-finished"
+"TTL 1" 1.0 0 -7500403 true "" "plot item 0 fin-ttl / item 0 tasks-finished"
+"TTL 2" 1.0 0 -2674135 true "" "plot item 1 fin-ttl / item 1 tasks-finished"
+"TTL 3" 1.0 0 -955883 true "" "plot item 2 fin-ttl / item 2 tasks-finished"
+"TTL 4" 1.0 0 -6459832 true "" "plot item 3 fin-ttl / item 3 tasks-finished"
+"TTL 5" 1.0 0 -1184463 true "" "plot item 4 fin-ttl / item 4 tasks-finished"
+
+PLOT
+340
+455
+540
+605
+avarage task age
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot avg-task-age"
 
 @#$#@#$#@
 ## WHAT IS IT?
