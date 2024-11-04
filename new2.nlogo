@@ -60,6 +60,67 @@ to setup-nodes [ n ]
   ]
 end
 
+
+to setup-nodes-spec [ n ]
+  create-nodes n / 3 [
+    set max-capacity random stack-limit + 1
+    set stack-of-tasks []
+    set working-on nobody
+    set capability (list
+      (5.5)
+      (1)
+      (1)
+    )
+
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
+    let radius 8
+    let angle 360 / n * who
+    setxy (radius * cos angle) (radius * sin angle)
+  ]
+    create-nodes n / 3 [
+    set max-capacity random stack-limit + 1
+    set stack-of-tasks []
+    set working-on nobody
+    set capability (list
+      (1)
+      (5.5)
+      (1)
+    )
+
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
+    let radius 8
+    let angle 360 / n * who
+    setxy (radius * cos angle) (radius * sin angle)
+  ]
+    create-nodes n / 3 [
+    set max-capacity random stack-limit + 1
+    set stack-of-tasks []
+    set working-on nobody
+    set capability (list
+      (1)
+      (1)
+      (5.5)
+    )
+
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
+    let radius 8
+    let angle 360 / n * who
+    setxy (radius * cos angle) (radius * sin angle)
+  ]
+end
+
+
+
+
 to instantiate-tasks [ n ]
   create-tasks n [
     let difficulty random 5 + 1
@@ -187,8 +248,6 @@ to reason [ agent ]
     if length stack-of-tasks > 0 and working-on = nobody [
       start-working self
     ]
-
-
 
     ifelse working-on != nobody [
       ask working-on [
@@ -483,7 +542,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -538,7 +596,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-50.0
+30.0
 1
 1
 NIL
@@ -570,7 +628,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-15.0
+10.0
 1
 1
 NIL
