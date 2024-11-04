@@ -24,6 +24,7 @@ nodes-own [
   max-capacity
   stack-of-tasks
   working-on
+  dead-time
   capability
 ]
 
@@ -44,6 +45,7 @@ to setup-nodes [ n ]
     set max-capacity random stack-limit + 1
     set stack-of-tasks []
     set working-on nobody
+    set dead-time 0
     set capability (list
       (2.5)
       (2.5)
@@ -60,63 +62,6 @@ to setup-nodes [ n ]
   ]
 end
 
-
-to setup-nodes-spec [ n ]
-  create-nodes n / 3 [
-    set max-capacity random stack-limit + 1
-    set stack-of-tasks []
-    set working-on nobody
-    set capability (list
-      (5.5)
-      (1)
-      (1)
-    )
-
-    let r scale-component (item 0 capability)
-    let g scale-component (item 1 capability)
-    let b scale-component (item 2 capability)
-    set color rgb r g b
-    let radius 8
-    let angle 360 / n * who
-    setxy (radius * cos angle) (radius * sin angle)
-  ]
-    create-nodes n / 3 [
-    set max-capacity random stack-limit + 1
-    set stack-of-tasks []
-    set working-on nobody
-    set capability (list
-      (1)
-      (5.5)
-      (1)
-    )
-
-    let r scale-component (item 0 capability)
-    let g scale-component (item 1 capability)
-    let b scale-component (item 2 capability)
-    set color rgb r g b
-    let radius 8
-    let angle 360 / n * who
-    setxy (radius * cos angle) (radius * sin angle)
-  ]
-    create-nodes n / 3 [
-    set max-capacity random stack-limit + 1
-    set stack-of-tasks []
-    set working-on nobody
-    set capability (list
-      (1)
-      (1)
-      (5.5)
-    )
-
-    let r scale-component (item 0 capability)
-    let g scale-component (item 1 capability)
-    let b scale-component (item 2 capability)
-    set color rgb r g b
-    let radius 8
-    let angle 360 / n * who
-    setxy (radius * cos angle) (radius * sin angle)
-  ]
-end
 
 
 
@@ -226,18 +171,36 @@ end
 to agent-loop
   exchange-new-tasks
 
+
   ask nodes [
     reason self
   ]
 end
 
 to exchange-new-tasks
+  let old-tasks-discarded  sum tasks-overflowed
   ask nodes [
     if length stack-of-tasks > max-capacity [
       handle-random-task-assigned-overflow self
     ]
   ]
+  let lost-this-round  sum tasks-overflowed - old-tasks-discarded
+  if lost-this-round > 0 [
+    setup-nodes lost-this-round
+  ]
+
+  ask nodes [
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
+    let radius 8
+    let angle 360 / count nodes * who
+    setxy (radius * cos angle) (radius * sin angle)
+  ]
 end
+
+
 
 
 to reason [ agent ]
@@ -275,35 +238,36 @@ to reason [ agent ]
       ]
 
     ] [
-      apply-learning-decay self
+      if dead-time = 1 [
+        die
+      ]
+      set dead-time dead-time + 1
     ]
 
   ]
 end
 
 to handle-random-task-assigned-overflow [ agent ]
+  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity]
+  let overflowing-task last [ stack-of-tasks ] of agent
+
   ask agent [
-    ; take overflowing task from agent
-    let overflowing-task last stack-of-tasks
     set stack-of-tasks but-last stack-of-tasks
-    show(word "Received Task " overflowing-task " but already at full Capacity trying to find someone.")
-
-    ; try to give it to some other node that has capacity
-    let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity]
-    ifelse count available-nodes > 0 [
-      give-task-to-node-with-least-tasks available-nodes overflowing-task self
-    ]
-    ; else if no one has any capacity task will go to waste
-    [
-      show(word "Found no one to solve " overflowing-task " discarding.")
-      let tdif sum [task-type] of overflowing-task
-      set tdif tdif - 1
-      set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
+  ]
+  ifelse count available-nodes > 0 [
+    give-task-to-node-with-least-tasks available-nodes overflowing-task self
+  ]
+  ; else if no one has any capacity task will go to waste
+  [
+    show(word "Found no one to solve " overflowing-task " discarding.")
+    let tdif sum [task-type] of overflowing-task
+    set tdif tdif - 1
+    set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
 
 
-      ask overflowing-task [
-        die
-      ]
+
+    ask overflowing-task [
+      die
     ]
   ]
 end
@@ -357,6 +321,7 @@ to start-working [ agent ]
     ]
 
     set working-on nextTask
+    set dead-time 0
     show (word "Starting work on " working-on  " expected time " [initial-time] of working-on)
   ]
 end
@@ -564,8 +529,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-1
-1
+0
+0
 1
 ticks
 30.0
@@ -596,7 +561,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-30.0
+60.0
 1
 1
 NIL
@@ -628,7 +593,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-10.0
+25.0
 1
 1
 NIL
@@ -643,7 +608,7 @@ alpha
 alpha
 0
 1
-1.0
+0.0
 0.1
 1
 NIL
@@ -733,7 +698,7 @@ CHOOSER
 learning_type
 learning_type
 "linear" "experience" "reinforcement" "balanced"
-0
+3
 
 SLIDER
 635
@@ -744,7 +709,7 @@ stop-at-ticks
 stop-at-ticks
 100
 10000
-250.0
+500.0
 50
 1
 NIL
@@ -789,6 +754,35 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot avg-task-age"
+
+MONITOR
+5
+10
+122
+55
+number of nodes
+count nodes
+17
+1
+11
+
+PLOT
+110
+460
+310
+610
+nodes
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot count nodes"
 
 @#$#@#$#@
 ## WHAT IS IT?
