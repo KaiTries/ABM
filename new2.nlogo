@@ -27,6 +27,7 @@ nodes-own [
   dead-time
   capability
   angle
+  experience
 ]
 
 breed [ tasks task ]
@@ -47,6 +48,7 @@ to setup-nodes [ n ]
     set stack-of-tasks []
     set working-on nobody
     set dead-time 0
+    set experience 0
     set capability (list
       (2.5)
       (2.5)
@@ -71,26 +73,39 @@ to instantiate-tasks [ n ]
   create-tasks n [
     let difficulty random 5 + 1
     set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
+
+    set size 0.5
+    set color rgb (item 0 task-type * 255) (item 1 task-type * 255) (item 2 task-type * 255)
+    setxy 0 0
+
     set task-type (map [ x -> x * difficulty ] task-type)
     set age 0
 
     let tdif difficulty - 1
     set n-tasks replace-item tdif n-tasks (item tdif n-tasks + 1)
-
-
-    set color yellow
-    set size 0.5
-    setxy 0 0
     assign-task-to-node self
+  ]
+end
+
+to move-task-to-node [n]
+  if [working-on] of n != nobody [
+    ask [working-on] of n [
+      move-to n
+    ]
+  ]
+  let radius 9
+  foreach [stack-of-tasks] of n [ x ->
+    let posx (radius * cos [angle] of n)
+    let posy (radius * sin [angle] of n)
+    ask x [
+      setxy posx posy
+    ]
+    set radius radius + 0.5
   ]
 end
 
 to assign-task-to-node [ t ]
   let target-node one-of nodes
-  ask t [
-    let radius (length [stack-of-tasks] of target-node) * 0.5 + 8.5
-    setxy (radius * cos [angle] of target-node) (radius * sin [angle] of target-node)
-  ]
   ask target-node [
     set stack-of-tasks lput t stack-of-tasks
     show (word "Received task " t " of type " [task-type] of t)
@@ -115,6 +130,12 @@ to-report avg-task-age
     report (sum [age] of tasks) / count tasks
   ] [
     report 0  ; Return 0 if there are no tasks to avoid division by zero
+  ]
+end
+
+to print-node-capabilities
+  ask nodes [
+    show (word map [x -> precision x 2] capability)
   ]
 end
 
@@ -177,6 +198,21 @@ to agent-loop
   ask nodes [
     reason self
   ]
+
+  layout
+end
+
+to layout
+  ask nodes [
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
+    let radius 8
+    set angle 360 / count nodes * who
+    setxy (radius * cos angle) (radius * sin angle)
+    move-task-to-node self
+  ]
 end
 
 to exchange-new-tasks
@@ -190,30 +226,6 @@ to exchange-new-tasks
   if lost-this-round > 0 [
     setup-nodes lost-this-round
   ]
-
-  ask nodes [
-    let r scale-component (item 0 capability)
-    let g scale-component (item 1 capability)
-    let b scale-component (item 2 capability)
-    set color rgb r g b
-    let radius 8
-    set angle 360 / count nodes * who
-    setxy (radius * cos angle) (radius * sin angle)
-    move-task-to-node self
-  ]
-end
-
-to move-task-to-node [n] [
-  let radius 8.5
-  foreach [stack-of-tasks] of n [ x ->
-    set radius radius + 0.5
-    let posx (radius * cos [angle] of n)
-    let posy (radius * sin [angle] of n)
-    ask x [
-      setxy posx posy
-    ]
-  ]
-]
 end
 
 
@@ -221,27 +233,20 @@ to reason [ agent ]
   ask agent [
     if length stack-of-tasks = 0 and working-on = nobody [
       ask-for-task self
-  ]]
-  ask agent [
+    ]
     if length stack-of-tasks > 0 and working-on = nobody [
       start-working self
-  ]]
-  ask agent [
+    ]
 
     ifelse working-on != nobody [
       ask working-on [
         set time-left time-left - 1
       ]
 
-
-
-
       if [time-left] of working-on = 0 [
         let tdif sum [task-type] of working-on
         set tdif tdif - 1
         set tasks-finished replace-item tdif tasks-finished (item tdif tasks-finished + 1)
-
-
 
         set fin-ttl replace-item tdif fin-ttl (item tdif fin-ttl + [age] of working-on)
 
@@ -251,6 +256,7 @@ to reason [ agent ]
           die
         ]
         set working-on nobody
+        set experience experience + 1
       ]
 
     ] [
@@ -270,6 +276,7 @@ to handle-random-task-assigned-overflow [ agent ]
   ask agent [
     set stack-of-tasks but-last stack-of-tasks
   ]
+
   ifelse count available-nodes > 0 [
     give-task-to-node-with-least-tasks available-nodes overflowing-task self
   ]
@@ -279,8 +286,6 @@ to handle-random-task-assigned-overflow [ agent ]
     let tdif sum [task-type] of overflowing-task
     set tdif tdif - 1
     set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
-
-
 
     ask overflowing-task [
       die
@@ -297,8 +302,6 @@ to give-task-to-node-with-least-tasks [ agents t from ]
     set stack-of-tasks lput t stack-of-tasks
     show(word "Received Task " t " from " from ".")
   ]
-
-  move-task-to-node node-with-smallest-stack
 end
 
 ; currently just takes the last task in the stack of the node with the larges stack
@@ -321,13 +324,10 @@ to ask-for-task [ agent ]
         set stack-of-tasks lput newTask stack-of-tasks
         show(word "Took task " newTask " from agent " node-with-largest-stack)
       ]
-      ask newTask [
-        let radius (length [stack-of-tasks] of agent) * 0.5 + 8.5
-        setxy (radius * cos [angle] of agent) (radius * sin [angle] of agent)
-      ]
     ]
   ]
 end
+
 
 
 to start-working [ agent ]
@@ -528,7 +528,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -615,7 +614,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-6.0
+20.0
 1
 1
 NIL
@@ -731,7 +730,7 @@ stop-at-ticks
 stop-at-ticks
 100
 10000
-500.0
+250.0
 50
 1
 NIL
@@ -805,6 +804,40 @@ false
 "" ""
 PENS
 "default" 1.0 0 -16777216 true "" "plot count nodes"
+
+BUTTON
+645
+530
+777
+563
+print capabilities
+print-node-capabilities\n\nask nodes [\n  foreach stack-of-tasks [ x ->\n    if [who] of x = 43 [show self]\n  ]\n]
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+640
+500
+712
+533
+go one
+go
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
