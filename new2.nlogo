@@ -203,15 +203,17 @@ to agent-loop
 end
 
 to layout
+  let n-counter 0
   ask nodes [
     let r scale-component (item 0 capability)
     let g scale-component (item 1 capability)
     let b scale-component (item 2 capability)
     set color rgb r g b
     let radius 8
-    set angle 360 / count nodes * who
+    set angle 360 / count nodes * n-counter
     setxy (radius * cos angle) (radius * sin angle)
     move-task-to-node self
+    set n-counter n-counter + 1
   ]
 end
 
@@ -509,7 +511,6 @@ to update-capability-reinforcement [current-node task-node]
     set capability new-capability
   ]
 end
-
 
 
 
