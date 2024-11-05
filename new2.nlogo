@@ -26,6 +26,7 @@ nodes-own [
   working-on
   dead-time
   capability
+  angle
 ]
 
 breed [ tasks task ]
@@ -57,7 +58,7 @@ to setup-nodes [ n ]
     let b scale-component (item 2 capability)
     set color rgb r g b
     let radius 8
-    let angle 360 / n * who
+    set angle 360 / n * who
     setxy (radius * cos angle) (radius * sin angle)
   ]
 end
@@ -87,7 +88,8 @@ end
 to assign-task-to-node [ t ]
   let target-node one-of nodes
   ask t [
-    move-to target-node
+    let radius (length [stack-of-tasks] of target-node) * 0.5 + 8.5
+    setxy (radius * cos [angle] of target-node) (radius * sin [angle] of target-node)
   ]
   ask target-node [
     set stack-of-tasks lput t stack-of-tasks
@@ -195,22 +197,36 @@ to exchange-new-tasks
     let b scale-component (item 2 capability)
     set color rgb r g b
     let radius 8
-    let angle 360 / count nodes * who
+    set angle 360 / count nodes * who
     setxy (radius * cos angle) (radius * sin angle)
+    move-task-to-node self
   ]
 end
 
-
+to move-task-to-node [n] [
+  let radius 8.5
+  foreach [stack-of-tasks] of n [ x ->
+    set radius radius + 0.5
+    let posx (radius * cos [angle] of n)
+    let posy (radius * sin [angle] of n)
+    ask x [
+      setxy posx posy
+    ]
+  ]
+]
+end
 
 
 to reason [ agent ]
   ask agent [
     if length stack-of-tasks = 0 and working-on = nobody [
       ask-for-task self
-    ]
+  ]]
+  ask agent [
     if length stack-of-tasks > 0 and working-on = nobody [
       start-working self
-    ]
+  ]]
+  ask agent [
 
     ifelse working-on != nobody [
       ask working-on [
@@ -276,10 +292,13 @@ end
 
 to give-task-to-node-with-least-tasks [ agents t from ]
   let node-with-smallest-stack min-one-of agents [length stack-of-tasks]
+
   ask node-with-smallest-stack [
     set stack-of-tasks lput t stack-of-tasks
     show(word "Received Task " t " from " from ".")
   ]
+
+  move-task-to-node node-with-smallest-stack
 end
 
 ; currently just takes the last task in the stack of the node with the larges stack
@@ -301,6 +320,10 @@ to ask-for-task [ agent ]
       ask agent [
         set stack-of-tasks lput newTask stack-of-tasks
         show(word "Took task " newTask " from agent " node-with-largest-stack)
+      ]
+      ask newTask [
+        let radius (length [stack-of-tasks] of agent) * 0.5 + 8.5
+        setxy (radius * cos [angle] of agent) (radius * sin [angle] of agent)
       ]
     ]
   ]
@@ -506,7 +529,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -561,7 +583,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-60.0
+26.0
 1
 1
 NIL
@@ -593,7 +615,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-25.0
+6.0
 1
 1
 NIL
@@ -608,7 +630,7 @@ alpha
 alpha
 0
 1
-0.0
+0.2
 0.1
 1
 NIL
