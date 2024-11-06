@@ -135,7 +135,7 @@ to-report avg-task-age
   ifelse any? tasks [
     report (sum [age] of tasks) / count tasks
   ] [
-    report 0  ; Return 0 if there are no tasks to avoid division by zero
+    report 0
   ]
 end
 
@@ -209,17 +209,21 @@ to agent-loop
 end
 
 to layout
-  let n-counter 0
-  ask nodes [
+  let sorted-nodes sort nodes
+  let node-count length sorted-nodes
+  foreach sorted-nodes [
+    n ->
+    ask n [
+    let index position n sorted-nodes
     let r scale-component (item 0 capability)
     let g scale-component (item 1 capability)
     let b scale-component (item 2 capability)
-    set color rgb r g b
-    let radius 8
-    set angle 360 / count nodes * n-counter
-    setxy (radius * cos angle) (radius * sin angle)
-    move-task-to-node self
-    set n-counter n-counter + 1
+      let radius 8
+      set color rgb r g b
+      set angle 360 / node-count * index
+      setxy (radius * cos angle) (radius * sin angle)
+      move-task-to-node self
+    ]
   ]
 end
 
@@ -251,6 +255,7 @@ to reason [ agent ]
         set time-left time-left - 1
       ]
 
+      show( word "working on task " working-on " time left " [time-left] of working-on )
       if [time-left] of working-on = 0 [
         let tdif sum [task-type] of working-on
         set tdif tdif - 1
@@ -258,17 +263,19 @@ to reason [ agent ]
 
         set fin-ttl replace-item tdif fin-ttl (item tdif fin-ttl + [age] of working-on)
 
-        update-capabilities self working-on
         show(word "Finished task " working-on)
+        update-capabilities self working-on
         ask working-on [
           die
         ]
         set working-on nobody
+        set dead-time 0
         set experience experience + 1
       ]
 
     ] [
-      if dead-time = 1 [
+      if dead-time = max-idle-time [
+        show(word "Was idle for too long will die")
         die
       ]
       set dead-time dead-time + 1
@@ -312,27 +319,83 @@ to give-task-to-node-with-least-tasks [ agents t from ]
   ]
 end
 
-; currently just takes the last task in the stack of the node with the larges stack
-; takes it only if it is better at solving that task
-to ask-for-task [ agent ]
-  let others-with-tasks nodes with [self != agent and length stack-of-tasks > 0]
-  if count others-with-tasks > 0 [
-    let node-with-largest-stack max-one-of others-with-tasks [length stack-of-tasks]
-    let newTask last [stack-of-tasks] of node-with-largest-stack
+to-report want-task [agent t ]
+  ; if i am generalist e.g. have no preference yet just early exit and say yes
+  let best-at max [ capability ] of agent
+  let worst-at min [ capability ] of agent
 
-    let my-capability sum ( map [[x y] -> x * y] [capability] of agent [task-type] of newTask )
-    let node-capability sum ( map [[x y] -> x * y] [capability] of node-with-largest-stack [task-type] of newTask )
+  ifelse best-at - worst-at < 1 [
+    report true
+  ] [
+    let want false
+    let max-index position best-at [ capability ] of agent
 
-    if my-capability > node-capability [
+    let t-type max [ task-type ] of t
+    let t-index position t-type [ task-type ] of t
 
-      ask node-with-largest-stack [
-        set stack-of-tasks but-last stack-of-tasks
-      ]
-      ask agent [
-        set stack-of-tasks lput newTask stack-of-tasks
-        show(word "Took task " newTask " from agent " node-with-largest-stack)
-      ]
+    if max-index = t-index [
+      set want true
     ]
+    report want
+  ]
+end
+
+; checks if the node we want task t from actually wants to give it to us
+to-report give-task [ agent t ]
+  let want true
+  let best-at max [ capability ] of agent
+  let max-index position best-at [ capability ] of agent
+
+  let t-type max [ task-type ] of t
+  let t-index position t-type [ task-type ] of t
+
+  ask agent [
+    ;
+    ;if working-on = nobody and length stack-of-tasks < 2 [
+    ; set want false
+    ;]
+    if dead-time < 0 [
+      set want false
+    ]
+  ]
+
+  if max-index = t-index [
+    set want false
+  ]
+
+  report want
+end
+
+; If our agent has no work he will ask his collegues for open tasks.
+; He simply goes through the stack of the other person and if he sees a task he wants to do he takes it
+to ask-for-task [ agent ]
+  let others-with-tasks sort ( nodes with [self != agent and length stack-of-tasks > 0] ); here we just take the smaller collection of nodes he knows
+
+  while [ length others-with-tasks > 0 ] [
+    let some-node first others-with-tasks
+    set others-with-tasks but-first others-with-tasks
+
+    let tasks-of-collegue [ stack-of-tasks ] of some-node
+
+    let found-task false
+    foreach tasks-of-collegue [
+      t ->
+      if want-task agent t [
+        show(word "want the task " t " from node " some-node)
+        if give-task some-node t [
+          ask some-node [
+            set stack-of-tasks remove t stack-of-tasks
+          ]
+          ask agent [
+            set stack-of-tasks lput t stack-of-tasks
+          ]
+          set found-task true
+          show(word "Got task " t " from node " some-node " - due to no work." )
+        ]
+      ]
+      if found-task [ stop ]
+    ]
+    if found-task [ stop ]
   ]
 end
 
@@ -363,12 +426,19 @@ to-report ask-links-if-better [a t]
   report best-al
 end
 
-to start-working [ agent ]
-  ask agent [
-    let nextTask last stack-of-tasks
-    set stack-of-tasks but-last stack-of-tasks
 
-    let better-agent ask-links-if-better agent nextTask
+
+to start-working [ agent ]
+  while [[ working-on ] of agent = nobody and length [stack-of-tasks] of agent > 0][
+    let nextTask last [stack-of-tasks] of agent
+    ask agent [
+      set stack-of-tasks but-last stack-of-tasks
+    ]
+
+    if want-task agent nextTask [
+      let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask [ capability ] of agent)
+
+    ; let better-agent ask-links-if-better agent nextTask
 
     ;ifelse better-agent != nobody [
    ;   show (word "Link of agent " better-agent " is better in task " nextTask)
@@ -389,18 +459,51 @@ to start-working [ agent ]
 ;      ]
 ;    ] [
       ; agent gives estimate how long task takes
-      let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
+   ;   let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
 
       ask nextTask [
         set initial-time floor task-time
         set time-left initial-time
       ]
 
-      set working-on nextTask
-      set dead-time 0
-      show (word "Starting work on " working-on  " expected time " [initial-time] of working-on)
-;    ]
+      ask agent [
+        set working-on nextTask
+        set dead-time 0
+        show (word "Want to do this task - Starting work on " working-on  " expected time " [initial-time] of working-on)
+      ]
+      stop
+    ]
+
+    if not want-task agent nextTask [
+      let collegues sort ( nodes with [ self != agent and length stack-of-tasks < max-capacity ] )
+      let passed-on false
+      foreach collegues [
+        collegue ->
+        if want-task collegue nextTask and passed-on = false [
+          ask collegue [
+            set stack-of-tasks lput nextTask stack-of-tasks
+          ]
+          set passed-on true
+          show(word "Collegue " collegue " took task " nextTask " off me.")
+        ]
+      ]
+
+      if not passed-on [
+        let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask [ capability ] of agent)
+
+        ask nextTask [
+          set initial-time floor task-time
+          set time-left initial-time
+        ]
+        ask agent [
+          set working-on nextTask
+          set dead-time 0
+          show (word "Did not want this task - Starting work on " working-on  " expected time " [initial-time] of working-on)
+        ]
+      ]
+    ]
   ]
+  if [ working-on ] of agent = nobody [ show( word "passed on all my work")]
 end
 
 
@@ -578,7 +681,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -633,7 +735,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-26.0
+10.0
 1
 1
 NIL
@@ -665,7 +767,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-20.0
+5.0
 1
 1
 NIL
@@ -680,7 +782,7 @@ alpha
 alpha
 0
 1
-0.2
+0.1
 0.1
 1
 NIL
@@ -862,7 +964,7 @@ BUTTON
 777
 563
 print capabilities
-print-node-capabilities\n\nask nodes [\n  foreach stack-of-tasks [ x ->\n    if [who] of x = 43 [show self]\n  ]\n]
+print-node-capabilities\nask nodes [\nifelse working-on = nobody [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" dead-time \" | Neighours \" link-neighbors)\n  ] [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on [task-type] of working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" dead-time \" | Neighours \" link-neighbors)\n  ]\n ]\n
 NIL
 1
 T
@@ -900,6 +1002,21 @@ num_links
 0
 10
 1.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+120
+385
+292
+418
+max-idle-time
+max-idle-time
+1
+10
+3.0
 1
 1
 NIL
