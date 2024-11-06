@@ -64,6 +64,7 @@ to setup-nodes [ n ]
     setxy (radius * cos angle) (radius * sin angle)
   ]
 
+  ; create num_links with other nodes for nodes without links
   ask nodes with [count links = 0] [
     let random_n n-of num_links other nodes
     create-links-with random_n
@@ -335,24 +336,70 @@ to ask-for-task [ agent ]
   ]
 end
 
+to-report get-task-from-agent [a1 a2]
+  let received-task nobody
+  let best-c 0
+  foreach [stack-of-tasks] of a2 [ t ->
+    let c1 sum ( map [[x y] -> x * y] [capability] of a1 [task-type] of t )
+    let c2 sum ( map [[x y] -> x * y] [capability] of a2 [task-type] of t )
+    if c1 > c2 and c1 > best-c [
+      set received-task t
+      set best-c c1
+    ]
+  ]
+  report received-task
+end
 
+to-report ask-links-if-better [a t]
+  let best-al nobody
+  let best-c sum ( map [[x y] -> x * y] [capability] of a [task-type] of t )
+  ask [link-neighbors] of a [
+    let c sum ( map [[x y] -> x * y] capability [task-type] of t )
+    if best-c < c and length stack-of-tasks < 5 [
+      set best-al self
+      set best-c c
+    ]
+  ]
+  report best-al
+end
 
 to start-working [ agent ]
   ask agent [
     let nextTask last stack-of-tasks
     set stack-of-tasks but-last stack-of-tasks
 
-    ; agent gives estimate how long task takes
-    let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
+    let better-agent ask-links-if-better agent nextTask
 
-    ask nextTask [
-      set initial-time floor task-time
-      set time-left initial-time
-    ]
+    ;ifelse better-agent != nobody [
+   ;   show (word "Link of agent " better-agent " is better in task " nextTask)
+   ;   ask better-agent [
+   ;     set stack-of-tasks lput nextTask stack-of-tasks
+   ;   ]
+   ;   let receive-task get-task-from-agent agent better-agent
+   ;   if receive-task != nobody [
+   ;     show (word "Task exchange of " receive-task " from " better-agent)
+   ;     let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of receive-task capability)
+;
+;        ask receive-task [
+;          set initial-time floor task-time
+;          set time-left initial-time
+;        ]
+;        set working-on receive-task
+;        set dead-time 0
+;      ]
+;    ] [
+      ; agent gives estimate how long task takes
+      let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
 
-    set working-on nextTask
-    set dead-time 0
-    show (word "Starting work on " working-on  " expected time " [initial-time] of working-on)
+      ask nextTask [
+        set initial-time floor task-time
+        set time-left initial-time
+      ]
+
+      set working-on nextTask
+      set dead-time 0
+      show (word "Starting work on " working-on  " expected time " [initial-time] of working-on)
+;    ]
   ]
 end
 
@@ -516,7 +563,6 @@ to update-capability-reinforcement [current-node task-node]
     set capability new-capability
   ]
 end
-
 
 
 
