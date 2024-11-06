@@ -63,6 +63,11 @@ to setup-nodes [ n ]
     set angle 360 / n * who
     setxy (radius * cos angle) (radius * sin angle)
   ]
+
+  ask nodes with [count links = 0] [
+    let random_n n-of num_links other nodes
+    create-links-with random_n
+  ]
 end
 
 
@@ -528,7 +533,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -839,6 +843,21 @@ NIL
 NIL
 NIL
 1
+
+SLIDER
+120
+340
+292
+373
+num_links
+num_links
+0
+10
+1.0
+1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
