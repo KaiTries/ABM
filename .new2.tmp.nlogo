@@ -3,6 +3,7 @@
 ; ==============================================================
 
 globals [
+  currently-overflowing
   tasks-overflowed
   tasks-finished
   stack-limit
@@ -44,7 +45,7 @@ tasks-own [
 
 to setup-nodes [ n ]
   create-nodes n [
-    set max-capacity random stack-limit + 1
+    set max-capacity ;random stack-limit + 1
     set stack-of-tasks []
     set working-on nobody
     set dead-time 0
@@ -62,36 +63,31 @@ to setup-nodes [ n ]
     let radius 8
     set angle 360 / n * who
     setxy (radius * cos angle) (radius * sin angle)
-  ]
 
-  show(word "Created " n " nodes - total free nodes " count nodes with [ count links = 0] )
 
-  ; Define number of links per node
-  let max-links-per-node 1
 
-  ; Create list of all node pairs for linking
-  let nodes-list sort nodes
-  foreach nodes-list [
-    nd ->
-    if count [links] of nd < max-links-per-node [
-      let potential-partners other nodes with [
-        count links < max-links-per-node and not link-neighbor? nd
-      ]
-      let partners-to-link min list (max-links-per-node - count [links] of nd) count potential-partners
-      if partners-to-link > 0 [
-        let selected-partners n-of partners-to-link potential-partners
-        ask selected-partners [
-          create-link-with nd
-        ]
-      ]
+    ; Create links with a specified number of other nodes
+    let candidates other nodes with [count my-links < num_links and not link-neighbor? myself]
+    let selected-partners n-of min list (num_links - count my-links) count candidates candidates
+
+    ask selected-partners [
+      create-link-with myself
     ]
+
+    show ( word "created node " self " with " count my-links " collegues")
   ]
+
+
+
+
+
+
 
 
 
 
   ; Optional: Label each node with its link count for verification
-  ask nodes [ set label count links ]
+  ask nodes [ set label count my-links ]
   ask links [ set hidden? false ]
 end
 
@@ -190,6 +186,7 @@ to setup
   set stack-limit 5
   set beta 0.05                 ; default slowdown speed
   set delta 0.01                ; default decay rate
+  set currently-overflowing 0
   setup-nodes number-of-nodes
 
   setup-plots
@@ -199,6 +196,11 @@ end
 to go
   tick
   show (word "========== ROUND " ticks " ==========")
+  if currently-overflowing > 0 [
+    show (word "Adding " currently-overflowing " new agents due to task overflow.")
+    setup-nodes currently-overflowing ;
+    set currently-overflowing 0 ;
+  ]
   instantiate-tasks number-of-tasks
   agent-loop
   tasks-maintanance
@@ -260,7 +262,7 @@ to exchange-new-tasks
   ]
   let lost-this-round  sum tasks-overflowed - old-tasks-discarded
   if lost-this-round > 0 [
-    setup-nodes lost-this-round
+    set currently-overflowing lost-this-round
   ]
 end
 
@@ -300,8 +302,6 @@ to reason [ agent ]
     ] [
       if dead-time = max-idle-time [
         show(word "Was idle for too long will die")
-        ask links [ die ]
-
         die
       ]
       set dead-time dead-time + 1
@@ -311,7 +311,7 @@ to reason [ agent ]
 end
 
 to handle-random-task-assigned-overflow [ agent ]
-  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity]
+  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ]
   let overflowing-task last [ stack-of-tasks ] of agent
 
   ask agent [
@@ -323,7 +323,7 @@ to handle-random-task-assigned-overflow [ agent ]
   ]
   ; else if no one has any capacity task will go to waste
   [
-    show(word "Found no one to solve " overflowing-task " discarding.")
+    show(word "Asked " count [ link-neighbors ] of agent " Collegues, found no one to solve " overflowing-task " discarding.")
     let tdif sum [task-type] of overflowing-task
     set tdif tdif - 1
     set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
@@ -395,15 +395,16 @@ end
 ; If our agent has no work he will ask his collegues for open tasks.
 ; He simply goes through the stack of the other person and if he sees a task he wants to do he takes it
 to ask-for-task [ agent ]
-  let others-with-tasks sort ( nodes with [self != agent and length stack-of-tasks > 0] ); here we just take the smaller collection of nodes he knows
+  let others-with-tasks sort ( nodes with [self != agent and length stack-of-tasks > 0 and member? self [link-neighbors] of agent ] ); here we just take the smaller collection of nodes he knows
 
+  let found-task false
   while [ length others-with-tasks > 0 ] [
     let some-node first others-with-tasks
     set others-with-tasks but-first others-with-tasks
 
     let tasks-of-collegue [ stack-of-tasks ] of some-node
 
-    let found-task false
+
     foreach tasks-of-collegue [
       t ->
       if want-task agent t [
@@ -423,6 +424,7 @@ to ask-for-task [ agent ]
     ]
     if found-task [ stop ]
   ]
+  if not found-task [ show(word "no work left for me to do") ]
 end
 
 to-report get-task-from-agent [a1 a2]
@@ -501,7 +503,7 @@ to start-working [ agent ]
     ]
 
     if not want-task agent nextTask [
-      let collegues sort ( nodes with [ self != agent and length stack-of-tasks < max-capacity ] )
+      let collegues sort ( nodes with [ self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ] )
       let passed-on false
       foreach collegues [
         collegue ->
@@ -529,7 +531,7 @@ to start-working [ agent ]
       ]
     ]
   ]
-  if [ working-on ] of agent = nobody [ show( word "passed on all my work")]
+  if [ working-on ] of agent = nobody [ show( word "passed on all my work to other agents")]
 end
 
 
@@ -705,7 +707,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -728,8 +729,8 @@ GRAPHICS-WINDOW
 16
 -16
 16
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -1026,7 +1027,7 @@ num_links
 num_links
 0
 10
-1.0
+3.0
 1
 1
 NIL
