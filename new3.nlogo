@@ -3,19 +3,18 @@
 ; ==============================================================
 
 globals [
-  currently-overflowing
   tasks-overflowed
-  tasks-finished   ; a list containing a counter for each difficulty
-  max-capacity     ; the max number of task a agent can hold
-  fired            ; the count of fired nodes
-  hired            ; the count of fired nodes
-  fired-ages       ; list of ages from all nodes that where fired
-  ages             ; for plotting after n rounds with nodes alive
-  total-idle-time  ; the number of rounds a node can be idle for until fired
-  num-nodes        ; list of counts for each round
+  tasks-finished
+  stack-limit
+  num-nodes-round
 
-  min-value        ; min number of difficulty levels (mainly for node coloring)
-  max-value        ; max number of difficulty levels (mainly for node coloring)
+  min-value        ; arbitrary numbers 1
+  max-value        ; arbitrary numbers 5
+
+  beta             ; slowdown speed for experience-based learning
+  delta            ; decay rate
+  gamma            ; knowledge transfer rate
+
 
   n-tasks          ; counter wieviele tasks gabs
   fin-ttl          ; wie lange lebt in der regel ein task
@@ -23,130 +22,73 @@ globals [
 
 breed [ nodes node ]
 nodes-own [
-  stack-of-tasks   ; a list of tasks
-  working-on       ; task that is the agent is working on
-  idel-time        ; number of rounds a node was idel, sets back to 0 when working
-  capability       ; vector defining capabiloty strength (currently 3 dimensions)
-  experience       ; number of tasks finished
-  age              ; nuber of rounds the node has lived for
-  angle            ; for visualisation
-  cap-updates      ; all capability updates (times x capability vector)
+  max-capacity
+  stack-of-tasks
+  working-on
+  dead-time
+  capability
+  angle
+  experience
 ]
 
 breed [ tasks task ]
 tasks-own [
-  task-type        ; a vector defining the difficulty of the task (currently 3 dimensional)
-  age              ; number of rounds the task has lived for
-  initial-time     ; number of rounds the node needs to finish the task
-  time-left        ; number of rounds left for the node to finish the task
+  task-type ; [0 0 1] * difficulty
+  age
+  initial-time
+  time-left
 ]
-
-
-; ==============================================================
-; ==============     MAIN SIMULATION FLOW        ===============
-; ==============================================================
-
-
-to setup
-  clear-all
-  reset-ticks
-  set-default-shape nodes "circle"
-  set-default-shape tasks "triangle"
-
-
-  set tasks-overflowed [0 0 0 0 0]
-  set tasks-finished [0 0 0 0 0]
-  set n-tasks [0 0 0 0 0]
-  set fin-ttl [0 0 0 0 0]
-  set max-capacity 5
-  set min-value 1
-  set max-value 5
-  set fired-ages []
-  set currently-overflowing 0
-  set fired 0
-  set total-idle-time 0
-  set num-nodes []
-  setup-nodes number-of-nodes
-
-  setup-plots
-  layout
-end
-
-
-to go
-  tick
-  show (word "========== ROUND " ticks " ==========")
-  if currently-overflowing > 0 [
-    show (word "Adding " currently-overflowing " new agents due to task overflow.")
-    setup-nodes currently-overflowing
-    set hired hired + currently-overflowing
-    set currently-overflowing 0 ;
-  ]
-  instantiate-tasks number-of-tasks
-  agent-loop
-  tasks-maintanance
-  set num-nodes fput count nodes num-nodes
-  layout
-  show (word "============= END " ticks " ==========")
-  if ticks >= stop-at-ticks [
-    stop
-  ]
-end
-
-to tasks-maintanance
-  ask tasks [
-    set age age + 1
-  ]
-end
 
 ; ==============================================================
 ; ==============     SETUP & REPORTERS        ==================
 ; ==============================================================
 
 to setup-nodes [ n ]
+  ; Store who number before creating new nodes
+  let old-nodes-max ifelse-value any? nodes [max [who] of nodes] [-1]
+
   create-nodes n [
-    ; defining the fix parameters each node has when created
+    set max-capacity 5
     set stack-of-tasks []
     set working-on nobody
-    set idel-time 0
+    set dead-time 0
     set experience 0
-    set age 0
-
-    ; setting the initial capabilitie vector
     set capability (list
       (2.5)
       (2.5)
       (2.5)
     )
 
-    ; add initial capability vector in the update list
-    set cap-updates []
-    set cap-updates lput capability cap-updates
-
-    ; get nodes that have at max num_links and are not linked to the node already
-    let candidates other nodes with [count my-links < num_links and not link-neighbor? myself]
-
-    ; olny select as many link partners as needed to reach num_links connections
-    let selected-partners n-of min list (num_links - count my-links) count candidates candidates
-
-    ask selected-partners [
-      create-link-with myself
-    ]
-
-    show ( word "created node " self " with " count my-links " collegues")
+    let r scale-component (item 0 capability)
+    let g scale-component (item 1 capability)
+    let b scale-component (item 2 capability)
+    set color rgb r g b
+    let radius 8
+    set angle 360 / n * who
+    setxy (radius * cos angle) (radius * sin angle)
   ]
 
-  ; Optional: Label each node with its link count for verification
-  ask nodes [ set label count my-links ]
-  ask links [ set hidden? false ]
+  ; Create random links only for the newly created nodes
+  ask nodes with [who > old-nodes-max] [
+    create-links-with n-of (min list num_links (count other nodes)) other nodes [
+      set color gray
+      set thickness 0.2
+    ]
+  ]
 end
+
+
+
 
 
 to instantiate-tasks [ n ]
   create-tasks n [
     let difficulty random 5 + 1
     set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
+
     set size 0.5
+    set color rgb (item 0 task-type * 255) (item 1 task-type * 255) (item 2 task-type * 255)
+    setxy 0 0
 
     set task-type (map [ x -> x * difficulty ] task-type)
     set age 0
@@ -157,7 +99,22 @@ to instantiate-tasks [ n ]
   ]
 end
 
-
+to move-task-to-node [a]
+  if [working-on] of a != nobody [
+    ask [working-on] of a [
+      move-to a
+    ]
+  ]
+  let radius 9
+  foreach [stack-of-tasks] of a [ x ->
+    let posx (radius * cos [angle] of a)
+    let posy (radius * sin [angle] of a)
+    ask x [
+      setxy posx posy
+    ]
+    set radius radius + 0.5
+  ]
+end
 
 to assign-task-to-node [ t ]
   let target-node one-of nodes
@@ -176,7 +133,9 @@ to-report total-tasks-finished
   report sum tasks-finished
 end
 
-
+to-report scale-component [value]
+  report round (255 * ((value - min-value) / (max-value - min-value)))
+end
 
 to-report avg-task-age
   ifelse any? tasks [
@@ -192,55 +151,56 @@ to print-node-capabilities
   ]
 end
 
+
 ; ==============================================================
-; ================     Visualization        ====================
+; ==============     MAIN SIMULATION FLOW        ===============
 ; ==============================================================
 
-to layout
-  let sorted-nodes sort nodes
-  let node-count length sorted-nodes
-  foreach sorted-nodes [n ->
-    ask n [
-      let index position n sorted-nodes
-      let r scale-component (item 0 capability)
-      let g scale-component (item 1 capability)
-      let b scale-component (item 2 capability)
-      let radius 8
-      set color rgb r g b
-      set angle 360 / node-count * index
-      setxy (radius * cos angle) (radius * sin angle)
-      move-task-to-node self
-    ]
-  ]
 
-  ; for plotting
-  set ages fired-ages
-  ask nodes [
-    set ages fput age ages
+to setup
+  clear-all
+  reset-ticks
+
+  set-default-shape nodes "circle"
+  set-default-shape tasks "triangle"
+  set tasks-overflowed [0 0 0 0 0]
+  set tasks-finished [0 0 0 0 0]
+  set n-tasks [0 0 0 0 0]
+  set fin-ttl [0 0 0 0 0]
+  set min-value 1
+  set max-value 5
+  set stack-limit 5
+  set beta 0.05                 ; default slowdown speed
+  set delta 0.01                ; default decay rate
+  setup-nodes number-of-nodes
+
+  set num-nodes-round (list (count nodes))
+
+  setup-plots
+end
+
+
+to go
+  tick
+  show (word "========== ROUND " ticks " ==========")
+  instantiate-tasks number-of-tasks
+  agent-loop
+  tasks-maintanance
+  node-monitor
+  show (word "============= END " ticks " ==========")
+  if ticks >= stop-at-ticks [
+    stop
   ]
 end
 
-to-report scale-component [value]
-  report round (255 * ((value - min-value) / (max-value - min-value)))
+to tasks-maintanance
+  ask tasks [
+    set age age + 1
+  ]
 end
 
-to move-task-to-node [n]
-  if [working-on] of n != nobody [
-    ask [working-on] of n [
-      move-to n
-    ]
-  ]
-  let radius 9
-  foreach [stack-of-tasks] of n [ x ->
-    let posx (radius * cos [angle] of n)
-    let posy (radius * sin [angle] of n)
-    ask x [
-      setxy posx posy
-
-      set color rgb (item 0 task-type * 255) (item 1 task-type * 255) (item 2 task-type * 255)
-    ]
-    set radius radius + 0.5
-  ]
+to node-monitor
+  set num-nodes-round fput (count nodes) num-nodes-round
 end
 
 
@@ -254,9 +214,28 @@ to agent-loop
 
 
   ask nodes [
-    ; tracks how many round the node lived for
-    set age age + 1
     reason self
+  ]
+
+  layout
+end
+
+to layout
+  let sorted-nodes sort nodes
+  let node-count length sorted-nodes
+  foreach sorted-nodes [
+    n ->
+    ask n [
+      let index position n sorted-nodes
+      let r scale-component (item 0 capability)
+      let g scale-component (item 1 capability)
+      let b scale-component (item 2 capability)
+      let radius 8
+      set color rgb r g b
+      set angle 360 / node-count * index
+      setxy (radius * cos angle) (radius * sin angle)
+      move-task-to-node self
+    ]
   ]
 end
 
@@ -269,7 +248,7 @@ to exchange-new-tasks
   ]
   let lost-this-round  sum tasks-overflowed - old-tasks-discarded
   if lost-this-round > 0 [
-    set currently-overflowing lost-this-round
+    setup-nodes lost-this-round
   ]
 end
 
@@ -298,46 +277,49 @@ to reason [ agent ]
 
         show(word "Finished task " working-on)
         update-capabilities self working-on
-
-
-
         ask working-on [
           die
         ]
         set working-on nobody
-        set idel-time 0
+        set dead-time 0
         set experience experience + 1
       ]
 
     ] [
-      if idel-time = max-idle-time [
+      if dead-time = max-idle-time [
         show(word "Was idle for too long will die")
-        set fired fired + 1
-        set fired-ages fput age fired-ages
         die
       ]
-      set idel-time idel-time + 1
+      set dead-time dead-time + 1
     ]
 
   ]
 end
 
-; vieleicht den task discarden den man am wenigsten mag
 to handle-random-task-assigned-overflow [ agent ]
-  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ]
   let overflowing-task last [ stack-of-tasks ] of agent
 
   ask agent [
     set stack-of-tasks but-last stack-of-tasks
   ]
 
-  ; gib task jemandem mit wenig arbeit + capability
-  ifelse count available-nodes > 0 [
-    give-task-to-node-with-least-tasks available-nodes overflowing-task self
+  let best-c 1000
+  let best-a nobody
+  ask [link-neighbors] of agent [
+    if length stack-of-tasks < 5 [
+      let c get-capability self overflowing-task
+      if c < best-c [
+        set best-c c
+        set best-a self
+      ]
+    ]
   ]
-  ; else if no one has any capacity task will go to waste
-  [
-    show(word "Asked " count [ link-neighbors ] of agent " Collegues, found no one to solve " overflowing-task " discarding.")
+  ifelse best-a != nobody [
+    ask best-a [
+      set stack-of-tasks lput overflowing-task stack-of-tasks
+    ]
+  ] [
+    show(word "Found no one to solve " overflowing-task " discarding.")
     let tdif sum [task-type] of overflowing-task
     set tdif tdif - 1
     set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
@@ -359,128 +341,117 @@ to give-task-to-node-with-least-tasks [ agents t from ]
   ]
 end
 
-to-report want-task [agent t ]
-  ; if i am generalist e.g. have no preference yet just early exit and say yes
-  let best-at max [ capability ] of agent
-  let worst-at min [ capability ] of agent
-
-  ifelse best-at - worst-at < 1 [
-    report true
-  ] [
-
-    let want false
-    let max-index position best-at [ capability ] of agent
-
-    let t-type max [ task-type ] of t
-    let t-index position t-type [ task-type ] of t
-
-    if max-index = t-index [
-      set want true
-    ]
-    report want
-  ]
-end
-
-; checks if the node we want task t from actually wants to give it to us
-to-report give-task [ agent t ]
-  let want true
-  let best-at max [ capability ] of agent
-  let max-index position best-at [ capability ] of agent
-
-  let t-type max [ task-type ] of t
-  let t-index position t-type [ task-type ] of t
-
-  ask agent [
-    ;
-    ;if working-on = nobody and length stack-of-tasks < 2 [
-    ; set want false
-    ;]
-    if idel-time < 0 [
-      set want false
-    ]
-  ]
-
-  if max-index = t-index [
-    set want false
-  ]
-
-  report want
-end
 
 ; If our agent has no work he will ask his collegues for open tasks.
 ; He simply goes through the stack of the other person and if he sees a task he wants to do he takes it
 to ask-for-task [ agent ]
-  let others-with-tasks sort ( nodes with [self != agent and length stack-of-tasks > 0 and member? self [link-neighbors] of agent ] ); here we just take the smaller collection of nodes he knows
-
-  let found-task false
-  while [ length others-with-tasks > 0 ] [
-    let some-node first others-with-tasks
-    set others-with-tasks but-first others-with-tasks
-
-    let tasks-of-collegue [ stack-of-tasks ] of some-node
-
-
-    foreach tasks-of-collegue [
-      t ->
-      if want-task agent t [
-        show(word "want the task " t " from node " some-node)
-        if give-task some-node t [
-          ask some-node [
-            set stack-of-tasks remove t stack-of-tasks
-          ]
-          ask agent [
-            set stack-of-tasks lput t stack-of-tasks
-          ]
-          set found-task true
-          show(word "Got task " t " from node " some-node " - due to no work." )
+  show (word "Agend " agent " has no work and is asking for a task from his links.")
+  let best-c 1000
+  let agent-with-task nobody
+  let reveive-task nobody
+  ask [link-neighbors] of agent [
+    if length stack-of-tasks > 0 [
+      foreach stack-of-tasks [t ->
+        let c get-capability self t
+        if c < best-c [
+          set best-c c
+          set agent-with-task self
+          set reveive-task t
         ]
       ]
-      if found-task [ stop ]
     ]
-    if found-task [ stop ]
   ]
-  if not found-task [ show(word "no work left for me to do") ]
+
+  if agent-with-task != nobody [
+    show (word "Got task " reveive-task " from node " agent-with-task "." )
+    ask agent [
+      set stack-of-tasks lput reveive-task stack-of-tasks
+    ]
+    ask agent-with-task [
+      let pos position reveive-task stack-of-tasks
+      set stack-of-tasks remove reveive-task stack-of-tasks
+    ]
+  ]
+end
+
+to-report get-capability [a t]
+  report sqrt (sum ( map [[x y] -> (x - y) ^ 2 ] [capability] of a [task-type] of t ))
 end
 
 to-report get-task-from-agent [a1 a2]
   let received-task nobody
-  let best-c 0
+  let best-c 1000
   foreach [stack-of-tasks] of a2 [ t ->
-    let c1 sum ( map [[x y] -> x * y] [capability] of a1 [task-type] of t )
-    let c2 sum ( map [[x y] -> x * y] [capability] of a2 [task-type] of t )
-    if c1 > c2 and c1 > best-c [
+    let c1 get-capability a1 t
+    let c2 get-capability a2 t
+    if c1 < c2 and c1 < best-c [
       set received-task t
       set best-c c1
+    ]
+  ]
+  if received-task != nobody [
+    ask a2 [
+      set stack-of-tasks remove received-task stack-of-tasks
     ]
   ]
   report received-task
 end
 
 to-report ask-links-if-better [a t]
-  let best-al nobody
-  let best-c sum ( map [[x y] -> x * y] [capability] of a [task-type] of t )
+  let better-a nobody
+  let best-c get-capability a t
   ask [link-neighbors] of a [
-    let c sum ( map [[x y] -> x * y] capability [task-type] of t )
-    if best-c < c and length stack-of-tasks < 5 [
-      set best-al self
+    let c get-capability self t
+    if c < best-c and length stack-of-tasks < 5 [
+      set better-a self
       set best-c c
     ]
   ]
-  report best-al
+  report better-a
 end
 
 
 
 to start-working [ agent ]
+  ; while the agend still has tasks
   while [[ working-on ] of agent = nobody and length [stack-of-tasks] of agent > 0][
+
+    ; take the last task from the stack
     let nextTask last [stack-of-tasks] of agent
     ask agent [
       set stack-of-tasks but-last stack-of-tasks
     ]
 
-    if want-task agent nextTask [
-      let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask [ capability ] of agent)
+    ; check if the linked agents are better in the task
+    let better-agent ask-links-if-better agent nextTask
 
+    ; if there is a linked agent that is better
+    ifelse better-agent != nobody [
+      show (word "Link of agent " better-agent " is better in task " nextTask)
+
+      ; give the linked-agent the task
+      ask better-agent [
+        set stack-of-tasks lput nextTask stack-of-tasks
+      ]
+
+      ; Get a task from the linked-agent in that the agent is better at
+      let receive-task get-task-from-agent agent better-agent
+      if receive-task != nobody [
+        show (word agent "received task " receive-task " from " better-agent)
+
+        ; compute the task time and start working
+        let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of receive-task capability)
+        ask receive-task [
+          set initial-time floor task-time
+          set time-left initial-time
+        ]
+        set working-on receive-task
+        set dead-time 0
+        stop
+      ]
+    ] [
+      ; agent gives estimate how long task takes
+      let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
       ask nextTask [
         set initial-time floor task-time
         set time-left initial-time
@@ -488,42 +459,12 @@ to start-working [ agent ]
 
       ask agent [
         set working-on nextTask
-        set idel-time 0
-        show (word "Want to do this task - Starting work on " working-on  " expected time " [initial-time] of working-on)
+        set dead-time 0
+        show (word self " starting work on " working-on  " expected time " [initial-time] of working-on)
       ]
       stop
     ]
-
-    if not want-task agent nextTask [
-      let collegues sort ( nodes with [ self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ] )
-      let passed-on false
-      foreach collegues [
-        collegue ->
-        if want-task collegue nextTask and passed-on = false [
-          ask collegue [
-            set stack-of-tasks lput nextTask stack-of-tasks
-          ]
-          set passed-on true
-          show(word "Collegue " collegue " took task " nextTask " off me.")
-        ]
-      ]
-
-      if not passed-on [
-        let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask [ capability ] of agent)
-
-        ask nextTask [
-          set initial-time floor task-time
-          set time-left initial-time
-        ]
-        ask agent [
-          set working-on nextTask
-          set idel-time 0
-          show (word "Did not want this task - Starting work on " working-on  " expected time " [initial-time] of working-on)
-        ]
-      ]
-    ]
   ]
-  if [ working-on ] of agent = nobody [ show( word "passed on all my work to other agents")]
 end
 
 
@@ -534,8 +475,18 @@ end
 
 to update-capabilities [current-node task-node]
   ; Update capabilities based on learning type
-
-  update-capability-balanced current-node working-on
+  if learning_type = "linear" [
+    update-capability-linear current-node working-on
+  ]
+  if learning_type = "experience" [
+    update-capability-experience-based current-node working-on
+  ]
+  if learning_type = "reinforcement" [
+    update-capability-reinforcement current-node working-on
+  ]
+  if learning_type = "balanced" [
+    update-capability-balanced current-node working-on
+  ]
 
   ; update color
   let r scale-component (item 0 capability)
@@ -544,6 +495,21 @@ to update-capabilities [current-node task-node]
   ask current-node [
     set color rgb r g b
   ]
+
+end
+
+
+
+
+; Learning Decay
+to apply-learning-decay [current-node]
+  let old-capability [capability] of current-node
+  let new-capability map [ x -> x * (1 - delta) ] old-capability
+
+  ask current-node [
+    set capability new-capability
+  ]
+  show (word "=> DECAY CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
 
 end
 
@@ -589,7 +555,7 @@ end
 
 
 
-; Balanced Learning
+; Option 4: Balanced Learning
 to update-capability-balanced [current-node task-node]
   let old-capability [capability] of current-node
   let task-requirement [task-type] of task-node
@@ -606,61 +572,67 @@ to update-capability-balanced [current-node task-node]
   ask current-node [
     show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
     set capability new-capability
-    ; add the new capability to the update list
-    set cap-updates lput capability cap-updates
+  ]
+
+end
+
+; Option 1: Linear Learning
+to update-capability-linear [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
+
+  let new-capability map [ x -> item x old-capability + max ( list 0 (alpha * (item x task-requirement - item x old-capability))) ] (range 3)
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+  ]
+end
+
+; Option 2: Experience-Based Learning
+to update-capability-experience-based [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
+
+  let new-capability map [
+    x -> item x old-capability + max (list 0
+    (alpha *
+      (item x task-requirement - item x old-capability) * exp(-1 * beta)))
+  ] (range 3)
+
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
+  ]
+end
+
+; Option 3: Reinforcement Learning with Sigmoid Function
+to-report sigmoid [x]
+  report 1 / (1 + exp(-1 * x))
+end
+
+to update-capability-reinforcement [current-node task-node]
+  let old-capability [capability] of current-node
+  let task-requirement [task-type] of task-node
+
+  ; Calculate task difficulty as the ratio of required to current capability
+  let task-difficulty task-requirement / old-capability
+
+  let new-capability map [ x -> item x old-capability +
+    (alpha * (item x task-requirement - item x old-capability) *
+     sigmoid(task-difficulty - 1))  ; Subtract 1 to center the sigmoid
+  ] (range 3)
+
+  ask current-node [
+    show (word "=> UPDATE CAPABILITY: " map [ x -> precision x 2] capability " to " map [ x -> precision x 2] new-capability)
+    set capability new-capability
   ]
 end
 
 
-; ==============================================================
-; =========       Specialization Metrics           =============
-; ==============================================================
 
-to compute-balence-scores
-  let balance-scores []
-  ask nodes [
-    ;; Balance Score: Standard deviation of the current capability vector
-    let norm-c map [ x -> x / (sum capability )] capability
-    let mean-capability mean norm-c
-    let balance-score sqrt(mean map [a -> (a - mean-capability) ^ 2] norm-c)
-    set balance-scores lput balance-score balance-scores
-  ]
-  print (word "==== Specialization Metrics =====")
-  print (word "== BALENCE SCORE (higher means more specialized)")
-  print (word "Max: " precision max balance-scores 2)
-  print (word "Min: " precision min balance-scores 2)
-  print (word "Mean: " precision mean balance-scores 2)
-  print (word "Std: " precision standard-deviation balance-scores 2)
-end
 
-to compute-specialization-switches
 
-  ask nodes [
-    let specialization-switches 0
 
-    ;; Loop through each capability update in cap-updates list
-    let previous-capability nobody
-    let previous-specialization nobody
-
-    foreach cap-updates [ x ->  ;; x is each capability vector in cap-updates
-      let current-capability x
-
-      ;; Specialization Switches: Detect dominant component change
-      let current-specialization position max current-capability current-capability
-      if previous-specialization != nobody and current-specialization != previous-specialization [
-        set specialization-switches specialization-switches + 1
-      ]
-
-      ;; Update previous states
-      set previous-capability current-capability
-      set previous-specialization current-specialization
-    ]
-
-    ;; Display results for each node
-
-    print (word "Node " self " - Specialization Switches: " specialization-switches)
-  ]
-end
 
 
 
@@ -691,17 +663,17 @@ GRAPHICS-WINDOW
 16
 -16
 16
-1
-1
+0
+0
 1
 ticks
 30.0
 
 BUTTON
-800
-560
-862
-605
+1415
+465
+1477
+498
 NIL
 setup
 NIL
@@ -715,10 +687,10 @@ NIL
 1
 
 SLIDER
-390
-665
-795
-698
+210
+145
+382
+178
 number-of-nodes
 number-of-nodes
 1
@@ -730,10 +702,10 @@ NIL
 HORIZONTAL
 
 BUTTON
-865
-560
-928
-605
+1230
+505
+1293
+538
 NIL
 go
 T
@@ -747,51 +719,51 @@ NIL
 1
 
 SLIDER
-390
-595
-795
-628
+210
+190
+382
+223
 number-of-tasks
 number-of-tasks
 0
 100
-5.0
+10.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-390
-560
-795
-593
+210
+235
+382
+268
 alpha
 alpha
 0
 1
-0.0
+0.1
 0.1
 1
 NIL
 HORIZONTAL
 
 MONITOR
-800
-45
-1020
-90
+210
+75
+377
+120
 Tasks unable to complete
-tasks-overflowed
+total-tasks-overflowed
 17
 1
 11
 
 PLOT
-800
-95
+805
+20
 1225
-335
+350
 TASKS LOST
 ticks
 Tasks
@@ -801,30 +773,35 @@ Tasks
 10.0
 true
 true
-"" ""
+"set-plot-y-range 0 ((stop-at-ticks * number-of-tasks) / 5)\nset-plot-x-range 0 stop-at-ticks" ""
 PENS
-"LOST 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
-"LOST 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
-"LOST 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
-"LOST 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
-"LOST 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
+"dif 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
+"dif 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
+"dif 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
+"dif 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
+"dif 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
+"ALL 1" 1.0 0 -6459832 true "" "plot item 0 n-tasks"
+"ALL 2" 1.0 0 -1184463 true "" "plot item 1 n-tasks"
+"ALL 3" 1.0 0 -13840069 true "" "plot item 2 n-tasks"
+"ALL 4" 1.0 0 -14835848 true "" "plot item 3 n-tasks"
+"ALL 5" 1.0 0 -11221820 true "" "plot item 4 n-tasks"
 
 MONITOR
-390
-45
-600
-90
+210
+20
+375
+65
 Tasks completed
-tasks-finished
+total-tasks-finished
 17
 1
 11
 
 PLOT
 390
-95
+20
 795
-335
+350
 TASKS FINISHED
 time
 amount
@@ -839,29 +816,44 @@ PENS
 "FIN 1" 1.0 0 -7500403 true "" "plot item 0 tasks-finished"
 "FIN 2" 1.0 0 -10899396 true "" "plot item 1 tasks-finished"
 "FIN 3" 1.0 0 -955883 true "" "plot item 2 tasks-finished"
-"FIN 4" 1.0 0 -14835848 true "" "plot item 3 tasks-finished"
-"FIN 5" 1.0 0 -11221820 true "" "plot item 4 tasks-finished"
+"FIN 4" 1.0 0 -5825686 true "" "plot item 3 tasks-finished"
+"FIN 5" 1.0 0 -2674135 true "" "plot item 4 tasks-finished"
+"ALL 1" 1.0 0 -6459832 true "" "plot item 0 n-tasks"
+"ALL 2" 1.0 0 -1184463 true "" "plot item 1 n-tasks"
+"ALL 3" 1.0 0 -13840069 true "" "plot item 2 n-tasks"
+"ALL 4" 1.0 0 -14835848 true "" "plot item 3 n-tasks"
+"ALL 5" 1.0 0 -11221820 true "" "plot item 4 n-tasks"
+
+CHOOSER
+210
+280
+380
+325
+learning_type
+learning_type
+"linear" "experience" "reinforcement" "balanced"
+3
 
 SLIDER
-390
-630
-795
-663
+1230
+465
+1402
+498
 stop-at-ticks
 stop-at-ticks
 100
 10000
-100.0
+250.0
 50
 1
 NIL
 HORIZONTAL
 
 PLOT
-800
-340
+805
+360
 1225
-555
+610
 TTL OF FINISHED TASKS
 NIL
 NIL
@@ -881,9 +873,9 @@ PENS
 
 PLOT
 390
-340
+490
 795
-555
+610
 avarage task age
 NIL
 NIL
@@ -898,10 +890,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot avg-task-age"
 
 MONITOR
-1230
-465
-1350
-510
+42
+20
+197
+65
 number of nodes
 count nodes
 17
@@ -909,13 +901,13 @@ count nodes
 11
 
 PLOT
-1350
-465
-1665
-690
+390
+360
+795
+485
 nodes
-ticks
-number
+NIL
+NIL
 0.0
 10.0
 0.0
@@ -927,10 +919,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot count nodes"
 
 BUTTON
-1005
-560
-1137
-605
+1230
+545
+1362
+578
 print capabilities
 print-node-capabilities\nask nodes [\nifelse working-on = nobody [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" dead-time \" | Neighours \" link-neighbors)\n  ] [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on [task-type] of working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" dead-time \" | Neighours \" link-neighbors)\n  ]\n ]\n
 NIL
@@ -944,10 +936,10 @@ NIL
 1
 
 BUTTON
-930
-560
-1002
-605
+1305
+505
+1377
+538
 go one
 go
 NIL
@@ -961,28 +953,13 @@ NIL
 1
 
 SLIDER
-390
-700
-795
-733
+210
+335
+382
+368
 num_links
 num_links
 0
-10
-0.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-390
-735
-795
-768
-max-idle-time
-max-idle-time
-1
 10
 5.0
 1
@@ -990,152 +967,31 @@ max-idle-time
 NIL
 HORIZONTAL
 
-MONITOR
-1140
-560
-1225
-605
-tasks open
-(ticks * number-of-tasks) - sum tasks-overflowed - sum tasks-finished
-17
+SLIDER
+210
+380
+382
+413
+max-idle-time
+max-idle-time
 1
-11
-
-MONITOR
-1230
-510
-1350
-555
-nodes fired
-fired
-17
+10
+1.0
 1
-11
-
-MONITOR
-605
-45
-795
-90
-Total tasks completed
-total-tasks-finished
-17
 1
-11
+NIL
+HORIZONTAL
 
 MONITOR
-1025
-45
-1225
-90
-Total tasks unable to complete
-total-tasks-overflowed
-17
-1
-11
-
-PLOT
-35
-95
-385
-245
-Total number of created nodes each round
-ticks
-nodes
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" "plot hired"
-
-PLOT
-35
-250
-385
-400
-Total number of fired nodes each round
-ticks
-nodes
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" "plot fired"
-
-MONITOR
-1230
-600
-1350
-645
-Mean node age
-mean ages
+40
+75
+197
+120
+average number of nodes
+mean num-nodes-round
 2
 1
 11
-
-MONITOR
-1230
-555
-1350
-600
-mean nodes
-round mean num-nodes
-0
-1
-11
-
-BUTTON
-800
-610
-997
-655
-Print Balence Scores
-compute-balence-scores
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-MONITOR
-1230
-645
-1350
-690
-nodes hired
-hired
-17
-1
-11
-
-BUTTON
-800
-660
-1025
-710
-Print number of specializ. switches
-compute-specialization-switches
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
 
 @#$#@#$#@
 ## WHAT IS IT?
