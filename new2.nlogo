@@ -3,9 +3,12 @@
 ; ==============================================================
 
 globals [
+  currently-overflowing
   tasks-overflowed
   tasks-finished
   stack-limit
+  fired
+  total-idle-time
 
   min-value        ; arbitrary numbers 1
   max-value        ; arbitrary numbers 5
@@ -44,7 +47,7 @@ tasks-own [
 
 to setup-nodes [ n ]
   create-nodes n [
-    set max-capacity random stack-limit + 1
+    set max-capacity 5 ; random stack-limit + 1
     set stack-of-tasks []
     set working-on nobody
     set dead-time 0
@@ -62,36 +65,31 @@ to setup-nodes [ n ]
     let radius 8
     set angle 360 / n * who
     setxy (radius * cos angle) (radius * sin angle)
-  ]
 
-  show(word "Created " n " nodes - total free nodes " count nodes with [ count links = 0] )
 
-  ; Define number of links per node
-  let max-links-per-node 1
 
-  ; Create list of all node pairs for linking
-  let nodes-list sort nodes
-  foreach nodes-list [
-    nd ->
-    if count [links] of nd < max-links-per-node [
-      let potential-partners other nodes with [
-        count links < max-links-per-node and not link-neighbor? nd
-      ]
-      let partners-to-link min list (max-links-per-node - count [links] of nd) count potential-partners
-      if partners-to-link > 0 [
-        let selected-partners n-of partners-to-link potential-partners
-        ask selected-partners [
-          create-link-with nd
-        ]
-      ]
+    ; Create links with a specified number of other nodes
+    let candidates other nodes with [count my-links < num_links and not link-neighbor? myself]
+    let selected-partners n-of min list (num_links - count my-links) count candidates candidates
+
+    ask selected-partners [
+      create-link-with myself
     ]
+
+    show ( word "created node " self " with " count my-links " collegues")
   ]
+
+
+
+
+
+
 
 
 
 
   ; Optional: Label each node with its link count for verification
-  ask nodes [ set label count links ]
+  ask nodes [ set label count my-links ]
   ask links [ set hidden? false ]
 end
 
@@ -190,6 +188,9 @@ to setup
   set stack-limit 5
   set beta 0.05                 ; default slowdown speed
   set delta 0.01                ; default decay rate
+  set currently-overflowing 0
+  set fired 0
+  set total-idle-time 0
   setup-nodes number-of-nodes
 
   setup-plots
@@ -199,6 +200,11 @@ end
 to go
   tick
   show (word "========== ROUND " ticks " ==========")
+  if currently-overflowing > 0 [
+    show (word "Adding " currently-overflowing " new agents due to task overflow.")
+    setup-nodes currently-overflowing ;
+    set currently-overflowing 0 ;
+  ]
   instantiate-tasks number-of-tasks
   agent-loop
   tasks-maintanance
@@ -260,7 +266,7 @@ to exchange-new-tasks
   ]
   let lost-this-round  sum tasks-overflowed - old-tasks-discarded
   if lost-this-round > 0 [
-    setup-nodes lost-this-round
+    set currently-overflowing lost-this-round
   ]
 end
 
@@ -300,8 +306,7 @@ to reason [ agent ]
     ] [
       if dead-time = max-idle-time [
         show(word "Was idle for too long will die")
-        ask links [ die ]
-
+        set fired fired + 1
         die
       ]
       set dead-time dead-time + 1
@@ -310,20 +315,22 @@ to reason [ agent ]
   ]
 end
 
+; vieleicht den task discarden den man am wenigsten mag
 to handle-random-task-assigned-overflow [ agent ]
-  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity]
+  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ]
   let overflowing-task last [ stack-of-tasks ] of agent
 
   ask agent [
     set stack-of-tasks but-last stack-of-tasks
   ]
 
+  ; gib task jemandem mit wenig arbeit + capability
   ifelse count available-nodes > 0 [
     give-task-to-node-with-least-tasks available-nodes overflowing-task self
   ]
   ; else if no one has any capacity task will go to waste
   [
-    show(word "Found no one to solve " overflowing-task " discarding.")
+    show(word "Asked " count [ link-neighbors ] of agent " Collegues, found no one to solve " overflowing-task " discarding.")
     let tdif sum [task-type] of overflowing-task
     set tdif tdif - 1
     set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
@@ -353,6 +360,7 @@ to-report want-task [agent t ]
   ifelse best-at - worst-at < 1 [
     report true
   ] [
+
     let want false
     let max-index position best-at [ capability ] of agent
 
@@ -395,15 +403,16 @@ end
 ; If our agent has no work he will ask his collegues for open tasks.
 ; He simply goes through the stack of the other person and if he sees a task he wants to do he takes it
 to ask-for-task [ agent ]
-  let others-with-tasks sort ( nodes with [self != agent and length stack-of-tasks > 0] ); here we just take the smaller collection of nodes he knows
+  let others-with-tasks sort ( nodes with [self != agent and length stack-of-tasks > 0 and member? self [link-neighbors] of agent ] ); here we just take the smaller collection of nodes he knows
 
+  let found-task false
   while [ length others-with-tasks > 0 ] [
     let some-node first others-with-tasks
     set others-with-tasks but-first others-with-tasks
 
     let tasks-of-collegue [ stack-of-tasks ] of some-node
 
-    let found-task false
+
     foreach tasks-of-collegue [
       t ->
       if want-task agent t [
@@ -423,6 +432,7 @@ to ask-for-task [ agent ]
     ]
     if found-task [ stop ]
   ]
+  if not found-task [ show(word "no work left for me to do") ]
 end
 
 to-report get-task-from-agent [a1 a2]
@@ -464,29 +474,6 @@ to start-working [ agent ]
     if want-task agent nextTask [
       let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask [ capability ] of agent)
 
-    ; let better-agent ask-links-if-better agent nextTask
-
-    ;ifelse better-agent != nobody [
-   ;   show (word "Link of agent " better-agent " is better in task " nextTask)
-   ;   ask better-agent [
-   ;     set stack-of-tasks lput nextTask stack-of-tasks
-   ;   ]
-   ;   let receive-task get-task-from-agent agent better-agent
-   ;   if receive-task != nobody [
-   ;     show (word "Task exchange of " receive-task " from " better-agent)
-   ;     let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of receive-task capability)
-;
-;        ask receive-task [
-;          set initial-time floor task-time
-;          set time-left initial-time
-;        ]
-;        set working-on receive-task
-;        set dead-time 0
-;      ]
-;    ] [
-      ; agent gives estimate how long task takes
-   ;   let task-time sum (map [ [ x y ] -> x + x / y ] [task-type] of nextTask capability)
-
       ask nextTask [
         set initial-time floor task-time
         set time-left initial-time
@@ -501,7 +488,7 @@ to start-working [ agent ]
     ]
 
     if not want-task agent nextTask [
-      let collegues sort ( nodes with [ self != agent and length stack-of-tasks < max-capacity ] )
+      let collegues sort ( nodes with [ self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ] )
       let passed-on false
       foreach collegues [
         collegue ->
@@ -529,7 +516,7 @@ to start-working [ agent ]
       ]
     ]
   ]
-  if [ working-on ] of agent = nobody [ show( word "passed on all my work")]
+  if [ working-on ] of agent = nobody [ show( word "passed on all my work to other agents")]
 end
 
 
@@ -540,18 +527,8 @@ end
 
 to update-capabilities [current-node task-node]
   ; Update capabilities based on learning type
-  if learning_type = "linear" [
-    update-capability-linear current-node working-on
-  ]
-  if learning_type = "experience" [
-    update-capability-experience-based current-node working-on
-  ]
-  if learning_type = "reinforcement" [
-    update-capability-reinforcement current-node working-on
-  ]
-  if learning_type = "balanced" [
-    update-capability-balanced current-node working-on
-  ]
+
+  update-capability-balanced current-node working-on
 
   ; update color
   let r scale-component (item 0 capability)
@@ -705,7 +682,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -728,17 +704,17 @@ GRAPHICS-WINDOW
 16
 -16
 16
-0
-0
+1
+1
 1
 ticks
 30.0
 
 BUTTON
-640
-460
-702
-493
+800
+560
+862
+605
 NIL
 setup
 NIL
@@ -752,25 +728,25 @@ NIL
 1
 
 SLIDER
-125
-135
-297
-168
+390
+665
+795
+698
 number-of-nodes
 number-of-nodes
 1
 100
-11.0
+10.0
 1
 1
 NIL
 HORIZONTAL
 
 BUTTON
-735
-460
-798
-493
+865
+560
+928
+605
 NIL
 go
 T
@@ -784,25 +760,25 @@ NIL
 1
 
 SLIDER
-125
-185
-297
-218
+390
+595
+795
+628
 number-of-tasks
 number-of-tasks
 0
 100
-5.0
+4.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-125
-235
-297
-268
+390
+560
+795
+593
 alpha
 alpha
 0
@@ -814,21 +790,21 @@ NIL
 HORIZONTAL
 
 MONITOR
-130
-65
-297
-110
+800
+45
+1020
+90
 Tasks unable to complete
-total-tasks-overflowed
+tasks-overflowed
 17
 1
 11
 
 PLOT
-805
-20
+800
+95
 1225
-350
+335
 TASKS LOST
 ticks
 Tasks
@@ -838,35 +814,30 @@ Tasks
 10.0
 true
 true
-"set-plot-y-range 0 ((stop-at-ticks * number-of-tasks) / 5)\nset-plot-x-range 0 stop-at-ticks" ""
+"" ""
 PENS
-"dif 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
-"dif 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
-"dif 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
-"dif 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
-"dif 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
-"ALL 1" 1.0 0 -6459832 true "" "plot item 0 n-tasks"
-"ALL 2" 1.0 0 -1184463 true "" "plot item 1 n-tasks"
-"ALL 3" 1.0 0 -13840069 true "" "plot item 2 n-tasks"
-"ALL 4" 1.0 0 -14835848 true "" "plot item 3 n-tasks"
-"ALL 5" 1.0 0 -11221820 true "" "plot item 4 n-tasks"
+"LOST 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
+"LOST 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
+"LOST 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
+"LOST 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
+"LOST 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
 
 MONITOR
-130
-10
-295
-55
+390
+45
+600
+90
 Tasks completed
-total-tasks-finished
+tasks-finished
 17
 1
 11
 
 PLOT
 390
-20
+95
 795
-350
+335
 TASKS FINISHED
 time
 amount
@@ -881,44 +852,29 @@ PENS
 "FIN 1" 1.0 0 -7500403 true "" "plot item 0 tasks-finished"
 "FIN 2" 1.0 0 -10899396 true "" "plot item 1 tasks-finished"
 "FIN 3" 1.0 0 -955883 true "" "plot item 2 tasks-finished"
-"FIN 4" 1.0 0 -5825686 true "" "plot item 3 tasks-finished"
-"FIN 5" 1.0 0 -2674135 true "" "plot item 4 tasks-finished"
-"ALL 1" 1.0 0 -6459832 true "" "plot item 0 n-tasks"
-"ALL 2" 1.0 0 -1184463 true "" "plot item 1 n-tasks"
-"ALL 3" 1.0 0 -13840069 true "" "plot item 2 n-tasks"
-"ALL 4" 1.0 0 -14835848 true "" "plot item 3 n-tasks"
-"ALL 5" 1.0 0 -11221820 true "" "plot item 4 n-tasks"
-
-CHOOSER
-125
-280
-295
-325
-learning_type
-learning_type
-"linear" "experience" "reinforcement" "balanced"
-3
+"FIN 4" 1.0 0 -14835848 true "" "plot item 3 tasks-finished"
+"FIN 5" 1.0 0 -11221820 true "" "plot item 4 tasks-finished"
 
 SLIDER
-635
-420
-807
-453
+390
+630
+795
+663
 stop-at-ticks
 stop-at-ticks
 100
 10000
-250.0
+500.0
 50
 1
 NIL
 HORIZONTAL
 
 PLOT
-810
-360
+800
+340
 1225
-610
+555
 TTL OF FINISHED TASKS
 NIL
 NIL
@@ -937,10 +893,10 @@ PENS
 "TTL 5" 1.0 0 -1184463 true "" "plot item 4 fin-ttl / item 4 tasks-finished"
 
 PLOT
+390
 340
-455
-540
-605
+795
+555
 avarage task age
 NIL
 NIL
@@ -955,10 +911,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot avg-task-age"
 
 MONITOR
-5
-10
-122
-55
+1230
+465
+1350
+510
 number of nodes
 count nodes
 17
@@ -966,10 +922,10 @@ count nodes
 11
 
 PLOT
-110
-460
-310
-610
+1350
+465
+1665
+680
 nodes
 NIL
 NIL
@@ -984,10 +940,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot count nodes"
 
 BUTTON
-645
-530
-777
-563
+1005
+560
+1137
+605
 print capabilities
 print-node-capabilities\nask nodes [\nifelse working-on = nobody [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" dead-time \" | Neighours \" link-neighbors)\n  ] [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on [task-type] of working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" dead-time \" | Neighours \" link-neighbors)\n  ]\n ]\n
 NIL
@@ -1001,10 +957,10 @@ NIL
 1
 
 BUTTON
-640
-500
-712
-533
+930
+560
+1002
+605
 go one
 go
 NIL
@@ -1018,25 +974,25 @@ NIL
 1
 
 SLIDER
-120
-340
-292
-373
+390
+700
+795
+733
 num_links
 num_links
 0
 10
-1.0
+6.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-120
-385
-292
-418
+390
+735
+795
+768
 max-idle-time
 max-idle-time
 1
@@ -1046,6 +1002,50 @@ max-idle-time
 1
 NIL
 HORIZONTAL
+
+MONITOR
+1140
+560
+1225
+605
+tasks open
+(ticks * number-of-tasks) - sum tasks-overflowed - sum tasks-finished
+17
+1
+11
+
+MONITOR
+1230
+510
+1350
+555
+nodes fired
+fired
+17
+1
+11
+
+MONITOR
+605
+45
+795
+90
+Total tasks completed
+total-tasks-finished
+17
+1
+11
+
+MONITOR
+1025
+45
+1225
+90
+Total tasks unable to complete
+total-tasks-overflowed
+17
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
