@@ -179,6 +179,25 @@ to-report total-tasks-finished
   report sum tasks-finished
 end
 
+to-report tasks-completed-difficulty-1
+  report item 0 tasks-finished
+end
+
+to-report tasks-completed-difficulty-2
+  report item 1 tasks-finished
+end
+
+to-report tasks-completed-difficulty-3
+  report item 2 tasks-finished
+end
+
+to-report tasks-completed-difficulty-4
+  report item 3 tasks-finished
+end
+
+to-report tasks-completed-difficulty-5
+  report item 4 tasks-finished
+end
 
 
 to-report avg-task-age
@@ -735,7 +754,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-10.0
+30.0
 1
 1
 NIL
@@ -767,7 +786,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-5.0
+10.0
 1
 1
 NIL
@@ -782,7 +801,7 @@ alpha
 alpha
 0
 1
-0.0
+0.1
 0.1
 1
 NIL
@@ -863,7 +882,7 @@ stop-at-ticks
 stop-at-ticks
 100
 10000
-100.0
+1000.0
 50
 1
 NIL
@@ -981,7 +1000,7 @@ num_links
 num_links
 0
 10
-0.0
+6.0
 1
 1
 NIL
@@ -996,7 +1015,7 @@ max-idle-time
 max-idle-time
 1
 10
-5.0
+10.0
 1
 1
 NIL
@@ -1573,6 +1592,11 @@ NetLogo 6.4.0
     <setup>setup</setup>
     <go>go</go>
     <metric>sum tasks-finished</metric>
+    <metric>tasks-completed-difficulty-1</metric>
+    <metric>tasks-completed-difficulty-2</metric>
+    <metric>tasks-completed-difficulty-3</metric>
+    <metric>tasks-completed-difficulty-4</metric>
+    <metric>tasks-completed-difficulty-5</metric>
     <enumeratedValueSet variable="number-of-tasks">
       <value value="10"/>
     </enumeratedValueSet>
@@ -1596,6 +1620,11 @@ NetLogo 6.4.0
     <setup>setup</setup>
     <go>go</go>
     <metric>sum tasks-finished</metric>
+    <metric>tasks-completed-difficulty-1</metric>
+    <metric>tasks-completed-difficulty-2</metric>
+    <metric>tasks-completed-difficulty-3</metric>
+    <metric>tasks-completed-difficulty-4</metric>
+    <metric>tasks-completed-difficulty-5</metric>
     <enumeratedValueSet variable="number-of-tasks">
       <value value="10"/>
     </enumeratedValueSet>
@@ -1613,6 +1642,65 @@ NetLogo 6.4.0
     </enumeratedValueSet>
     <enumeratedValueSet variable="num_links">
       <value value="3"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FIVE_LINKS | 10 NODES 10 TASKS | STOP 500" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>sum tasks-finished</metric>
+    <metric>tasks-completed-difficulty-1</metric>
+    <metric>tasks-completed-difficulty-2</metric>
+    <metric>tasks-completed-difficulty-3</metric>
+    <metric>tasks-completed-difficulty-4</metric>
+    <metric>tasks-completed-difficulty-5</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="500"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="5"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="SIX_LINKS | 30 NODES | 10 TASKS | 1000 TICKS" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>sum tasks-finished</metric>
+    <metric>tasks-completed-difficulty-1</metric>
+    <metric>tasks-completed-difficulty-2</metric>
+    <metric>tasks-completed-difficulty-3</metric>
+    <metric>tasks-completed-difficulty-4</metric>
+    <metric>tasks-completed-difficulty-5</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="30"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="1000"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="6"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>
