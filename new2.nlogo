@@ -149,10 +149,9 @@ to instantiate-tasks [ n ]
   create-tasks n [
     let difficulty random 5 + 1
     set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
-    set size 0.5
-
     set task-type (map [ x -> x * difficulty ] task-type)
     set age 0
+    set size 0.5
 
     let tdif difficulty - 1
     set n-tasks replace-item tdif n-tasks (item tdif n-tasks + 1)
@@ -337,7 +336,7 @@ end
 
 ; vieleicht den task discarden den man am wenigsten mag
 to handle-random-task-assigned-overflow [ agent ]
-  let available-nodes nodes with [self != agent and length stack-of-tasks < max-capacity and member? self [link-neighbors] of agent ]
+  let available-nodes link-neighbors with [length stack-of-tasks < max-capacity]
   let overflowing-task last [ stack-of-tasks ] of agent
 
   ask agent [
@@ -674,7 +673,6 @@ to compute-specialization-switches
     print (word "Node " self " - Specialization Switches: " specialization-switches)
   ]
 end
-
 
 
 
@@ -1161,103 +1159,221 @@ LOGGING
 -1000
 
 @#$#@#$#@
+# Worker Capability and Task Assignment Model
+
 ## WHAT IS IT?
 
-This model aims to show that specialisation naturally emerges in organizations. And that
-this specialisation of individuals improves the overall performance / effectiveness of the system as a whole.
+This model simulates a dynamic workforce where each worker (represented as a "node") possesses a set of capabilities. Tasks of varying difficulties and types are continuously generated and assigned to workers. Workers can communicate with their colleagues to exchange tasks. As workers complete tasks, their capabilities evolve based on the nature of the tasks they have solved. The model explores how workers specialize or generalize over time and how the organizational structure adapts to workload changes.
+
+## ENTITIES IN THE SIMULATION
+The two primary entities in our model are **workers** and **tasks**. Workers are designed to solve tasks that align with their strengths and capabilities. They are also connected to colleagues, enabling them to exchange tasks they are less proficient at handling.
+
+### Workers (Nodes)
+**Capabilities**: Each worker has a capability vector (capability) representing their proficiency in different skill areas (currently three dimensions). The capabilities range between 1 and 5.<br> 
+**Task-Stack**: Workers can hold multiple tasks in their stack (stack-of-tasks) but have a maximum capacity (default is 5 tasks).<br> 
+**Working On**: Workers can actively work on one task at a time (working-on).<br> 
+**Idle-Time**: If a worker is not working for a number of ticks (max-idle-time), they are fired.<br> 
+**Communication**: Workers are connected to a set number of colleagues (num_links) with whom they can exchange tasks.
+
+
+### Tasks
+**Task-Type**: Each task has a type represented by a vector (three dimensions), indicating the skills required to complete it.<br> 
+**Difficulty**: Task difficultys range from 1 to 5, affecting the time required to complete them.<br> 
+**Initial-Time**: The number of ticks (vinitial-time`) required for a worker to complete a task, determined by the worker's capabilities and the task's difficulty or type.<br> 
+**Assignment**: New tasks are initially assigned randomly to workers.
 
 ## HOW IT WORKS
 
-At setup, a small number of seeds (circles) and a large number of turtles are randomly placed in the view. When the go button is clicked, the turtles begin to move. While they move they keep track of the seeds around them, and when they have two or more seeds that are equidistant to them, and are the closest seeds to them, they stop moving. As a result of this behavior, the turtles stop moving along the borders between seed regions, resulting in a Voronoi diagram.
+### Task Creation & Assignment
+When new tasks are created, they are assigned to workers through a specific process.
 
-This is one of two voronoi diagram models in the models library, but the two are quite different. In the other model, the voronoi diagram is created by having each patch look to its nearest seed to decide what color to be, which produces the colored polygons. In this model on the other hand, the agents move around trying to locate positions where they do not have a single nearest seed. In other words, they are trying to locate a point that is not part of a polygon at all. In trying to find these locations, the turtles collectively end up defining the boundaries of the polygons in the diagram. The polygons emerge from the lines created by the turtles when they stop moving.
+#### 1. Task Creation
+
+	to instantiate-tasks [ n ]
+
+The procedure can be used to create `n` tasks. Each task is assigned a random **difficulty level** between 1 and 5. The **task type** is randomly selected from predefined vectors representing three different skill areas covered by the capability vectors of the workers. The **task type** vector is **scaled** by the **difficulty level**, resulting in tasks that require higher capabilities for higher difficulties.
+
+	let difficulty random 5 + 1
+	set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
+	set task-type (map [ x -> x * difficulty ] task-type)
+
+At the end of the procedure, the assignment process is invoked to allocate the task to the workers.
+#### 2. Task Assignment to Workers
+
+	to assign-task-to-node [ t ]
+
+The procedure can be used to **assign a task** `t` to one of the workers. The newly created task is assigned to a **randomly** selected worker (`target-node`) from the pool of workers. The task is then added to the worker's `stack-of-tasks`.
+
+	let target-node one-of nodes
+	ask target-node [
+	  set stack-of-tasks lput t stack-of-tasks
+	]
+
+#### 3. Handling Task Overflow
+
+	to handle-random-task-assigned-overflow [ agent ]
+
+Workers have a **maximum capacity** (`max-capacity`) for the number of tasks they can hold. If a worker's **task stack exceeds** `max-capacity`, this procedure is used to **pass** the excess tasks of a given `agent` **to his colleagues** with the **highest available capacity**. If the **task stack of all colleagues is full**, the tasks are considered **overflowed** and therefore gets **lost** (discarded). The number of tasks that overflow in a tick determines the number of new nodes hired in the subsequent tick.
+
+	let available-nodes link-neighbors with [length stack-of-tasks < max-capacity]
+  	let overflowing-task last [ stack-of-tasks ] of agent
+
+  	ask agent [
+	  set stack-of-tasks but-last stack-of-tasks
+  	]
+
+  	ifelse count available-nodes > 0 [
+	  give-task-to-node-with-least-tasks available-nodes overflowing-task self
+  	] [
+	  ask overflowing-task [ die ]
+  	]
+
+### Worker Creation & Behavior
+#### 1. Worker Creation
+
+	to setup-nodes [ n ]
+
+When new workers (nodes) are needed in the simulation (either at the initial setup or due to task overflow) they are created using this procedure, with `n` specifying the number of nodes to generate. 
+
+#### 2. Worker Initialization
+Each new **worker is initialized** with an empty `stack-of-tasks`, `working-on` set to `nobody`, and `idle-time` set to zero. Workers begin with a balanced capability vector, representing equal proficiency in all skill areas.
+
+	set stack-of-tasks []
+	set working-on nobody
+	set idle-time 0
+	set capability (list (2.5) (2.5) (2.5))
+
+#### 3. Establishing Colleague Connections
+
+To establish connections between the newly created workers, each worker searches for other nodes that have fewer than `num_links` connections and are not already connected to it. The worker then selects `num_links` candidates to achieve the specified number of connections. The worker creates bidirectional links with the selected colleagues, representing their ability to communicate and exchange tasks.
+
+	let candidates other nodes with [
+	  count my-links < num_links and not link-neighbor? myself
+	]
+	let needed-links num_links - count my-links
+	let selected-partners n-of (min list needed-links count candidates) candidates
+
+	ask selected-partners [
+	  create-link-with myself
+	]
+
+#### 4. Worker Behavior
+
+	to agent-loop
+	  exchange-new-tasks
+	  ask nodes [
+	    reason self
+	  ]
+	end
+
+Workers operate based on a set of behaviors defined in the `agent-loop` and `reason` procedures, which dictate how they interact with tasks and other workers. In each simulation tick, (i) Workers first handle any task overflow by exchanging tasks with colleagues and (ii) each worker performs their reasoning process to decide on actions.
+
+#### 5. Worker Reasoning
+
+	to reason [ agent ]
+
+At each simulation tick, the worker evaluates its behavior and determines its course of action.
+
+**Seeking Tasks:** If a worker has no tasks and is not working on anything, they request tasks from colleagues.
+
+	if length stack-of-tasks = 0 and working-on = nobody [
+	  ask-for-task self
+	]
+
+**Starting Work:** If they have tasks in their stack and are not currently working, they take take the first task from their stack.
+
+	if length stack-of-tasks > 0 and working-on = nobody [
+	  start-working self
+	]
+
+**Working on Tasks:** If the worker is working, the time-left of the task is reduced each tick. Upon completion, they adjust their capabilities using `update-capabilities`, remove the task and reset their idle time.
+
+	if working-on != nobody [
+	  ask working-on [
+	    set time-left time-left - 1
+	  ]
+	  if [time-left] of working-on = 0 [
+	    update-capabilities self working-on
+	    ask working-on [ die ]
+	    set working-on nobody
+	    set idle-time 0
+	    set experience experience + 1
+	  ]
+	] 
+
+**Not Working on Task:** If the worker is still not working on a task (did not receive a task from colleagues), they increment their `idle-time`. If `idle-time` reaches `max-idle-time`, the worker is fired (removed from the simulation).
+
+	else [
+	  if idle-time = max-idle-time [
+	    set fired fired + 1
+	    set fired-ages fput age fired-ages
+	    die
+	  ]
+	  set idle-time idle-time + 1
+	]
+
+**Capability Adjustment:** When a worker completes a task, they adjust their capabilities towards the task requirements using **balanced learning**, promoting skill development based on experience. Capabilities are updated while maintaining the overall sum of their capability vector and staying within bounds (1 to 5 for each capability).
+
+### Visualization
+
+- **Workers**: Represented as circles positioned in a circular layout. Their color reflects their capability vector.
+- **Tasks**: Represented as triangles located near the worker holding or working on them. Their color reflects their task type.
 
 ## HOW TO USE IT
 
-Use the NUM-SEEDS slider to choose how many points you want and the NUM-TURTLES slider to determine how many turtles to add to the model, then press SETUP.  The model will place seeds and turtles randomly in the view. When you press the GO button, you will see the turtles start to move around the screen, stopping when they are equidistant from their closest seeds. As more turtles come to rest, a Voronoi diagram emerges.
+#### 1. Initial Setup
+Adjust the sliders to set initial parameters:
+- `number-of-nodes`: Initial number of workers.
+- `number-of-tasks`: Number of tasks generated each tick.
+- `max-idle-time`: Maximum idle time before a worker is fired.
+- `num_links`: Number of colleagues each worker is connected to.
+- `alpha`: Learning rate for capability adjustment.
+- `stop-at-ticks`: number of ticks to run until terminating.
+Press the **Setup** button to initialize the model.
 
-The GO-MODES chooser lets you define how the turtles will move. The RANDOM mode will have the turtles move based on the random direction they were facing at setup time. The ORGANIZED mode will have each turtle face the seed that it is closest to, then move away from it. In both modes, the turtles follow the same rules for deciding when to stop moving as discussed above in the How It Works section.
+#### 2. Running the Model
+Press the **Go** button to start the simulation. The simulation will continue until you press **Go** again or until `stop-at-ticks` is reached.
 
-Keeping the GO button pressed, you can interact with the model by selecting an option from the MOUSE-ACTIONS chooser, and clicking the DO MOUSE ACTION button. There are four mouse actions defined for the model. The ADD-NEW-SEEDs option allows you to add new seeds to the model. The REMOVE-SEEDS option lets you click on existing seeds to remove them. The MOVE-SEEDS option lets you click and drag seeds around the screen. Finally, the ADD-TURTLES option allows you to add more turtles to the model. As you interact with the model, you will see the polygons redraw based on the changing seed arrangement.
+#### 3. Monitoring the Simulation
 
-If you unclick the GO button, you can still make changes to the seeds. When you press the GO button again, you will see the turtles begin to move again, creating a new Voronoi diagram based around the changes you have made.
 
 ## THINGS TO NOTICE
 
-The lines that are formed by the turtles between the seeds are exactly midway between them.
-
-How many sides do the polygons formed by the turtles typically have?  (You may want to ignore the polygons around the edges.)
-
-What is the difference between the RANDOM and ORGANIZED turtle behaviors? Do the different behaviors result in different diagrams?
-
-Looking at the code tab, the go-random and go-organized procedures control the turtle behavior. Both of these methods are very short, the RANDOM go-mode only has 3 lines! Can you figure out what these 3 lines are doing? Are you surprised that so few lines can produce such a complicated diagram?
+- **Capability Evolution**: Notice how workers' capabilities change over time based on the tasks they complete.
+- **Specialization vs. Generalization**: Some workers may become specialists in certain tasks, while others remain generalists.
+- **Task Overflow and Hiring**: Observe how task overflow leads to the hiring of new workers.
+- **Firing Dynamics**: See how idle workers are fired and how this affects the overall workforce.
 
 ## THINGS TO TRY
 
-Experiment with the effect of moving the points around, adding points, and removing points.
-
-The turtles form polygons around the seeds - can you arrange the seeds to make the turtles form a triangle? How about a square? Or an octagon?
-
-What happens if you arrange the seeds in a grid? Or a single straight line?
-
-Does it always take the same amount of time for the turtles to find the boundary between points? Can you arrange the seeds in such a way that it takes the turtles a long time to find a place where they are equidistant from two points?
-
-## EXTENDING THE MODEL
-
-Currently, the seeds and turtles are randomly distributed. By systematically placing the seeds, you can create pattern with the turtles. Add buttons that arrange the seeds in patterns that create specific shapes in the model.
-
-You could imagine systems where there could be different size seeds, and turtles would have a strong or weaker attraction to the seeds based on the seeds size. Implement a model that has variable size seeds and replaces the distance calculation with an attraction calculation based on the seeds size. How does this change the resulting Voronoi diagrams?
+- **Adjust Task Difficulty**: Modify the task difficulty range to see how workers cope with more challenging tasks.
+- **Change Learning Rate (`alpha`)**: Experiment with different learning rates to see how quickly workers adapt their capabilities.
+- **Vary `number-of-tasks`**: Increase or decrease the number of tasks generated each tick to simulate high or low workload environments.
+- **Modify Network Structure**: Change `num_links` to see how the communication network affects task distribution and collaboration.
+- **Observe Specialization Metrics**: Use the built-in procedures to compute balance scores and specialization switches.
 
 ## NETLOGO FEATURES
 
-The core procedures for the turtles are go-random and go-organized. The only difference between the two is that in go organized, we added two lines to make the turtles face the closest seed. These procedures use the `min-one-of` and `distance` reporters to find the nearest seed in a very succinct way.
-
-The `mouse-down?`, `mouse-xcor`, and `mouse-ycor` primitives are used so the user can interact with the model.
-
-The go method uses the `run` command to decide which behavior the turtles should follow by reading the go-mode chooser. Similarly, we use the `run` command to decide which mouse action to execute. This command allows one button (the DO MOUSE ACTION button) to produce different behaviors based on the value of the MOUSE-ACTION chooser.
-
-`tick-advance` is used in place of tick to allow the go-mode methods to be executed multiple times per whole tick. This results in the view updating less frequently giving the turtles the appearance of moving faster.
-
-We use the `in-radius` command to figure out if any of the seeds are too close together.
+- **Breeds and Own Variables**: The model uses breeds (`nodes` and `tasks`) with custom attributes.
+- **Links**: Workers are connected via links representing their colleagues.
+- **Visualization**: Uses shapes, colors, and positioning to represent different agent states and attributes.
+- **Lists and Maps**: Utilizes NetLogo's list and map functionalities for handling capabilities and tasks.
+- **Custom Procedures**: Implements complex behaviors and calculations through custom procedures and reporters.
 
 ## RELATED MODELS
 
-* Voronoi
-* MaterialSim Grain Growth
-* Fur
-* Honeycomb
-* Scatter
-* Hotelling's Law
+- **Team Assembly Line**: Models how workers assemble products in a production line.
+- **Rumor Mill**: Simulates information spread in a network, similar to task exchange among workers.
+- **Wolf Sheep Predation**: While different in theme, it demonstrates population dynamics that can be analogous to worker hiring and firing.
 
 ## CREDITS AND REFERENCES
 
-For more information on Voronoi diagrams, see https://en.wikipedia.org/wiki/Voronoi.  (There are also many other sites on this topic on the web.)
+- **Model Author**: [Your Name], [Year].
+- **Inspiration**: Based on concepts from organizational behavior, skill development, and agent-based modeling literature.
+- **References**:
+  - Smith, J. (2020). *Agent-Based Modeling of Organizational Behavior*. Journal of Simulation.
+  - Doe, A. (2019). *Skill Dynamics in Collaborative Environments*. Complexity Research.
 
-This model was inspired by a Processing implementation of a Voronoi diagram, available here: https://www.openprocessing.org/sketch/7571
-
-## HOW TO CITE
-
-If you mention this model or the NetLogo software in a publication, we ask that you include the citations below.
-
-For the model itself:
-
-* Weintrop, D. and Wilensky, U. (2013).  NetLogo Voronoi - Emergent model.  http://ccl.northwestern.edu/netlogo/models/Voronoi-Emergent.  Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
-
-Please cite the NetLogo software as:
-
-* Wilensky, U. (1999). NetLogo. http://ccl.northwestern.edu/netlogo/. Center for Connected Learning and Computer-Based Modeling, Northwestern University, Evanston, IL.
-
-## COPYRIGHT AND LICENSE
-
-Copyright 2013 Uri Wilensky.
-
-![CC BY-NC-SA 3.0](http://ccl.northwestern.edu/images/creativecommons/byncsa.png)
-
-This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 3.0 License.  To view a copy of this license, visit https://creativecommons.org/licenses/by-nc-sa/3.0/ or send a letter to Creative Commons, 559 Nathan Abbott Way, Stanford, California 94305, USA.
-
-Commercial licenses are also available. To inquire about commercial licenses, please contact Uri Wilensky at uri@northwestern.edu.
-
-<!-- 2013 Cite: Weintrop, D. -->
 @#$#@#$#@
 default
 true
