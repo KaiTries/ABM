@@ -678,7 +678,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -979,7 +978,7 @@ num_links
 num_links
 0
 10
-0.0
+2.0
 1
 1
 NIL
@@ -1213,7 +1212,7 @@ The procedure can be used to **assign a task** `t` to one of the workers. The ne
 
 	to handle-random-task-assigned-overflow [ agent ]
 
-Workers have a **maximum capacity** (`max-capacity`) for the number of tasks they can hold. If a worker's **task stack exceeds** `max-capacity`, this procedure is used to **pass** the excess tasks of a given `agent` **to his colleagues** with the **highest available capacity**. If the **task stack of all colleagues is full**, the tasks are considered **overflowed** and therefore gets **lost** (discarded). The number of tasks that overflow in a tick determines the number of new nodes hired in the subsequent tick.
+Workers have a **maximum capacity** (`max-capacity`) for the number of tasks they can hold. If a worker's **task stack exceeds** `max-capacity`, this procedure is used to **pass** the excess tasks of a given `agent` **to his colleagues** with the **highest available capacity**. If the **task stack of all colleagues is full**, the task is considered **overflowed** and therefore gets **lost** (discarded). The number of tasks that overflow in a tick determines the number of new nodes hired in the subsequent tick.
 
 	let available-nodes link-neighbors with [length stack-of-tasks < max-capacity]
   	let overflowing-task last [ stack-of-tasks ] of agent
@@ -1301,7 +1300,7 @@ At each simulation tick, the worker evaluates its behavior and determines its co
 	  ]
 	] 
 
-**Not Working on Task:** If the worker is still not working on a task (did not receive a task from colleagues), they increment their `idle-time`. If `idle-time` reaches `max-idle-time`, the worker is fired (removed from the simulation).
+**Idle Worker:** If the worker is still not working on a task (is idle), they increment their `idle-time` which defines the number of ticks the worker has been idle. If `idle-time` reaches `max-idle-time`, the worker is fired (removed from the simulation).
 
 	else [
 	  if idle-time = max-idle-time [
@@ -1317,7 +1316,8 @@ At each simulation tick, the worker evaluates its behavior and determines its co
 ### Visualization
 
 - **Workers**: Represented as circles positioned in a circular layout. Their color reflects their capability vector.
-- **Tasks**: Represented as triangles located near the worker holding or working on them. Their color reflects their task type.
+- **Tasks**: Represented as triangles located near the worker they are assigned to. The color reflects the type of the task. The tasks in the stack of a worker are displayed behind the worker node. If the worker is working on a tasks, the task is displayed on the working node.
+
 
 ## HOW TO USE IT
 
@@ -1331,10 +1331,10 @@ Adjust the sliders to set initial parameters:
 - `stop-at-ticks`: number of ticks to run until terminating.
 Press the **Setup** button to initialize the model.
 
-#### 2. Running the Model
+#### 2. Running The Model
 Press the **Go** button to start the simulation. The simulation will continue until you press **Go** again or until `stop-at-ticks` is reached.
 
-#### 3. Monitoring the Simulation
+#### 3. Monitoring The Simulation
 
 
 ## THINGS TO NOTICE
@@ -1373,7 +1373,6 @@ Press the **Go** button to start the simulation. The simulation will continue un
 - **References**:
   - Smith, J. (2020). *Agent-Based Modeling of Organizational Behavior*. Journal of Simulation.
   - Doe, A. (2019). *Skill Dynamics in Collaborative Environments*. Complexity Research.
-
 @#$#@#$#@
 default
 true
