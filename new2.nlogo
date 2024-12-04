@@ -33,6 +33,9 @@ nodes-own [
   age              ; nuber of rounds the node has lived for
   angle            ; for visualisation
   cap-updates      ; all capability updates (times x capability vector)
+  meeting-offset   ; random variable to offset the meetings of every single node
+  in-meeting       ; bool defining if node is in a meeting
+  hosting-meeting   ; bool defining if node is hosting a meeting
 ]
 
 breed [ tasks task ]
@@ -115,6 +118,12 @@ to setup-nodes [ n ]
     set experience 0
     set age 0
 
+    if MEETINGS [
+      set meeting-offset random meeting-freq
+      set in-meeting false
+      set hosting-meeting false
+    ]
+
     ; setting the initial capabilitie vector
     set capability (list
       (2.5)
@@ -138,10 +147,6 @@ to setup-nodes [ n ]
 
     LOGGER "INFO" ( word "created node " self " with " count my-links " collegues")
   ]
-
-  ; Optional: Label each node with its link count for verification
-  ask nodes [ set label count my-links ]
-  ask links [ set hidden? false ]
 end
 
 
@@ -230,6 +235,25 @@ to layout
   ask nodes [
     set ages fput age ages
   ]
+
+  ; colore the links that are active in a meeting
+  ask nodes with [hosting-meeting = true] [
+    ask my-links [
+      set color red
+      set thickness 0.3
+    ]
+  ]
+
+  ; Color the links that are not in a meeting
+  ask nodes with [in-meeting = false] [
+    ask my-links [
+      set color grey
+      set thickness 0
+    ]
+  ]
+
+  ; Optional: Label each node with its age
+  ask nodes [ set label age ]
 end
 
 to-report scale-component [value]
@@ -268,7 +292,23 @@ to agent-loop
   ask nodes [
     ; tracks how many round the node lived for
     set age age + 1
-    reason self
+
+    if MEETINGS [
+      ; For now a meeting lasts one tick. Therefor we reset the meeting status in the beginning of a new round.
+      set in-meeting false
+      set hosting-meeting false
+
+      if (ticks + meeting-offset) mod meeting-freq = 0 [
+        set hosting-meeting true
+        start-worker-meeting self
+      ]
+    ]
+
+
+    ; start reasoning process if the node is not in a meeting
+    if in-meeting = false [
+      reason self
+    ]
   ]
 end
 
@@ -540,6 +580,123 @@ end
 
 
 ; ==============================================================
+; =============       WORKER MEETING           =================
+; ==============================================================
+
+to start-worker-meeting [ a ]
+  ; Check if the worker is already in a meeting
+  ifelse [in-meeting] of a = true [
+    LOGGER "INFO" (word "Meeting of " a " could not be started. " a " is already in a meeting.")
+  ] [
+    LOGGER "INFO" (word "Meeting started for worker: " a)
+
+    ; Gather participants for the meeting
+    let participants get-meeting-participants a
+
+    LOGGER "INFO" (word "Meeting with " count participants " participants.")
+
+    ; Collect all tasks from participants
+    let all-tasks collect-tasks-from-participants participants
+
+    ifelse length all-tasks = 0 [
+      LOGGER "INFO" (word "Meeting had no tasks to share. All task stacks where empty")
+    ] [
+      set all-tasks reduce sentence all-tasks
+      ; Prepare participants for the meeting
+      prepare-participants-for-meeting participants
+
+      ; Redistribute tasks among participants
+      redistribute-tasks all-tasks participants
+    ]
+  ]
+end
+
+; Helper function to get meeting participants
+to-report get-meeting-participants [ a ]
+  report nodes with [self = a or member? self [link-neighbors] of a and in-meeting = false]
+end
+
+; Helper function to collect tasks from participants
+to-report collect-tasks-from-participants [ participants ]
+  let all-meeting-tasks []
+  ask participants [
+    if length stack-of-tasks != 0 [
+      set all-meeting-tasks lput stack-of-tasks all-meeting-tasks
+    ]
+  ]
+  report all-meeting-tasks
+end
+
+; Helper function to prepare participants for the meeting
+to prepare-participants-for-meeting [ participants ]
+  ask participants [
+    set in-meeting true
+    set stack-of-tasks []
+  ]
+end
+
+; Helper function to redistribute tasks among participants
+to redistribute-tasks [ all-tasks participants ]
+  let participants-list sort participants
+
+  foreach all-tasks [ t ->
+    ; Calculate fit scores for each participant
+    let fit-scores calculate-fit-scores participants-list t
+
+    ; Sort participants by fit score
+    let sorted-fit-scores sort-fit-scores fit-scores
+
+    ; Assign task to the best-fitting participant
+    assign-task-to-best-participant t sorted-fit-scores
+  ]
+end
+
+; Helper function to calculate fit scores for participants
+to-report calculate-fit-scores [ participants-list t ]
+  let fit-scores []
+  foreach participants-list [ p ->
+    let c sum (map [ [x y] -> x * y ] [capability] of p [task-type] of t )
+    set fit-scores lput (list p c) fit-scores
+  ]
+  report fit-scores
+end
+
+; Helper function to sort fit scores
+to-report sort-fit-scores [ fit-scores ]
+  report sort-by [[a b] -> item 1 a > item 1 b ] fit-scores
+end
+
+; Helper function to assign a task to the best-fitting participant
+to assign-task-to-best-participant [ t sorted-fit-scores ]
+  let assigned false
+  foreach sorted-fit-scores [ entry ->
+    if not assigned [
+      let p item 0 entry
+      if length [stack-of-tasks] of p < max-capacity [
+        ask p [
+          set stack-of-tasks lput t stack-of-tasks
+          LOGGER "INFO" (word "Meeting assigned task " t " to agent " self)
+        ]
+        set assigned true
+      ]
+    ]
+  ]
+  if not assigned [
+    ; Handle task overflow if desired
+    LOGGER "INFO" (word "Meeting could not resolve task " t ". Task overflowed and will be discarded.")
+    let tdif sum [task-type] of t
+    set tdif tdif - 1
+    if tdif >= 0 and tdif < length tasks-overflowed [
+      set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
+    ]
+    ask t [
+      die
+    ]
+  ]
+end
+
+
+; ==============================================================
 ; ===========       LEARNING FUNCTIONS           ===============
 ; ==============================================================
 
@@ -677,7 +834,6 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 1229
@@ -779,7 +935,7 @@ alpha
 alpha
 0
 1
-0.0
+0.1
 0.1
 1
 NIL
@@ -860,7 +1016,7 @@ stop-at-ticks
 stop-at-ticks
 100
 10000
-100.0
+3100.0
 50
 1
 NIL
@@ -978,7 +1134,7 @@ num_links
 num_links
 0
 10
-2.0
+4.0
 1
 1
 NIL
@@ -1154,6 +1310,32 @@ SWITCH
 LOGGING
 LOGGING
 1
+1
+-1000
+
+SLIDER
+390
+770
+665
+803
+meeting-freq
+meeting-freq
+1
+50
+15.0
+1
+1
+NIL
+HORIZONTAL
+
+SWITCH
+665
+770
+795
+803
+MEETINGS
+MEETINGS
+0
 1
 -1000
 
