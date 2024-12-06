@@ -6,6 +6,7 @@ globals [
   currently-overflowing
   tasks-overflowed
   tasks-finished   ; a list containing a counter for each difficulty
+  tasks-finished-r ; the number of tasks finished in curren round
   max-capacity     ; the max number of task a agent can hold
   fired            ; the count of fired nodes
   hired            ; the count of fired nodes
@@ -82,6 +83,7 @@ end
 to go
   tick
   LOGGER "INFO" (word "========== ROUND " ticks " ==========")
+  set tasks-finished-r 0
   if currently-overflowing > 0 [
     LOGGER "INFO" (word "Adding " currently-overflowing " new agents due to task overflow.")
     setup-nodes currently-overflowing
@@ -303,12 +305,8 @@ to agent-loop
         start-worker-meeting self
       ]
     ]
-
-
     ; start reasoning process if the node is not in a meeting
-    if in-meeting = false [
-      reason self
-    ]
+    reason self
   ]
 end
 
@@ -351,7 +349,7 @@ to reason [ agent ]
         LOGGER "INFO" (word "Finished task " working-on)
         update-capabilities self working-on
 
-
+        set tasks-finished-r tasks-finished-r + 1
 
         ask working-on [
           die
@@ -833,13 +831,12 @@ end
 
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
-1229
-20
-1666
-458
+415
+10
+852
+448
 -1
 -1
 13.0
@@ -863,10 +860,10 @@ ticks
 30.0
 
 BUTTON
-800
-560
-862
-605
+5
+255
+105
+288
 NIL
 setup
 NIL
@@ -880,10 +877,10 @@ NIL
 1
 
 SLIDER
-390
-665
-795
-698
+5
+115
+410
+148
 number-of-nodes
 number-of-nodes
 1
@@ -895,10 +892,10 @@ NIL
 HORIZONTAL
 
 BUTTON
-865
-560
-928
-605
+105
+255
+195
+288
 NIL
 go
 T
@@ -912,25 +909,25 @@ NIL
 1
 
 SLIDER
-390
-595
-795
-628
+5
+45
+410
+78
 number-of-tasks
 number-of-tasks
 0
 100
-5.0
+7.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-390
-560
-795
-593
+5
+10
+410
+43
 alpha
 alpha
 0
@@ -942,94 +939,50 @@ NIL
 HORIZONTAL
 
 MONITOR
-800
-45
-1020
-90
+1260
+10
+1480
+55
 Tasks unable to complete
 tasks-overflowed
 17
 1
 11
 
-PLOT
-800
-95
-1225
-335
-TASKS LOST
-ticks
-Tasks
-0.0
-10.0
-0.0
-10.0
-true
-true
-"" ""
-PENS
-"LOST 1" 1.0 0 -7500403 true "" "plot item 0 tasks-overflowed"
-"LOST 2" 1.0 0 -10899396 true "" "plot item 1 tasks-overflowed"
-"LOST 3" 1.0 0 -955883 true "" "plot item 2 tasks-overflowed"
-"LOST 4" 1.0 0 -5825686 true "" "plot item 3 tasks-overflowed"
-"LOST 5" 1.0 0 -2674135 true "" "plot item 4 tasks-overflowed"
-
 MONITOR
-390
-45
-600
-90
+860
+10
+1070
+55
 Tasks completed
 tasks-finished
 17
 1
 11
 
-PLOT
-390
-95
-795
-335
-TASKS FINISHED
-time
-amount
-0.0
-10.0
-0.0
-10.0
-false
-true
-"set-plot-y-range 0 ((stop-at-ticks * number-of-tasks) / 5)\nset-plot-x-range 0 stop-at-ticks" ""
-PENS
-"FIN 1" 1.0 0 -7500403 true "" "plot item 0 tasks-finished"
-"FIN 2" 1.0 0 -10899396 true "" "plot item 1 tasks-finished"
-"FIN 3" 1.0 0 -955883 true "" "plot item 2 tasks-finished"
-"FIN 4" 1.0 0 -14835848 true "" "plot item 3 tasks-finished"
-"FIN 5" 1.0 0 -11221820 true "" "plot item 4 tasks-finished"
-
 SLIDER
-390
-630
-795
-663
+5
+80
+410
+113
 stop-at-ticks
 stop-at-ticks
 100
 10000
-3100.0
+1000.0
 50
 1
 NIL
 HORIZONTAL
 
 PLOT
-800
-340
-1225
-555
-TTL OF FINISHED TASKS
-NIL
-NIL
+1260
+275
+1680
+450
+TTL of Compleated Tasks by Difficulty Type
+ticks
+ttl in ticks
 0.0
 10.0
 0.0
@@ -1038,20 +991,20 @@ true
 true
 "" ""
 PENS
-"TTL 1" 1.0 0 -7500403 true "" "plot item 0 fin-ttl / item 0 tasks-finished"
-"TTL 2" 1.0 0 -2674135 true "" "plot item 1 fin-ttl / item 1 tasks-finished"
-"TTL 3" 1.0 0 -955883 true "" "plot item 2 fin-ttl / item 2 tasks-finished"
-"TTL 4" 1.0 0 -6459832 true "" "plot item 3 fin-ttl / item 3 tasks-finished"
-"TTL 5" 1.0 0 -1184463 true "" "plot item 4 fin-ttl / item 4 tasks-finished"
+"Very Easy" 1.0 0 -13345367 true "" "if tasks-finished != 0 and item 0 tasks-finished != 0 [\n  plot item 0 fin-ttl / item 0 tasks-finished\n]"
+"Easy" 1.0 0 -10899396 true "" "if tasks-finished != 0 and item 1 tasks-finished != 0 [\n  plot item 1 fin-ttl / item 1 tasks-finished\n]"
+"Medium" 1.0 0 -1184463 true "" "if tasks-finished != 0 and item 2 tasks-finished != 0 [\n  plot item 2 fin-ttl / item 2 tasks-finished\n]"
+"Hard" 1.0 0 -955883 true "" "if tasks-finished != 0 and item 3 tasks-finished != 0 [\n  plot item 3 fin-ttl / item 3 tasks-finished\n]"
+"Very Hard" 1.0 0 -2674135 true "" "if tasks-finished != 0 and item 4 tasks-finished != 0 [\n  plot item 4 fin-ttl / item 4 tasks-finished\n]"
 
 PLOT
-390
-340
-795
-555
-avarage task age
-NIL
-NIL
+860
+275
+1260
+450
+Avarage Task Age
+ticks
+age in ticks
 0.0
 10.0
 0.0
@@ -1060,43 +1013,46 @@ true
 false
 "" ""
 PENS
-"default" 1.0 0 -16777216 true "" "plot avg-task-age"
+"default" 1.0 0 -2674135 true "" "plot avg-task-age"
 
 MONITOR
-1230
-465
-1350
-510
-number of nodes
+570
+600
+700
+645
+Number of nodes:
 count nodes
 17
 1
 11
 
 PLOT
-1350
-465
-1665
-690
-nodes
-ticks
-number
+1130
+495
+1425
+720
+Node Count Metrics
+metrics
+number of nodes
 0.0
-10.0
+9.0
 0.0
 10.0
 true
-false
-"" ""
+true
+"" "clear-plot"
 PENS
-"default" 1.0 0 -16777216 true "" "plot count nodes"
+"Current" 1.0 1 -10899396 true "" "plotxy 1 count nodes"
+"Max" 1.0 1 -5825686 true "" "if num-nodes != 0 and length num-nodes > 1 [\n  plotxy 3 max num-nodes\n]"
+"Min" 1.0 1 -13345367 true "" "if num-nodes != 0 and length num-nodes > 1 [\n  plotxy 5 min num-nodes\n]"
+"Mean" 1.0 1 -2674135 true "" "if num-nodes != 0 and length num-nodes > 1 [\n  plotxy 7 mean num-nodes\n]"
 
 BUTTON
-1005
-560
-1137
-605
-print capabilities
+230
+290
+407
+331
+Print Node Capabilities
 print-node-capabilities\nask nodes [\nifelse working-on = nobody [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" idle-time \" | Neighours \" link-neighbors)\n  ] [\n   show(word \"Capabilities \" map [ c -> precision c 2 ] capability \" | Working-on \" working-on [task-type] of working-on \" | Task-stack \" stack-of-tasks \" | Max-capacity \" max-capacity \" | dead-time \" idle-time \" | Neighours \" link-neighbors)\n  ]\n ]\n
 NIL
 1
@@ -1109,10 +1065,10 @@ NIL
 1
 
 BUTTON
-930
-560
-1002
-605
+195
+255
+280
+288
 go one
 go
 NIL
@@ -1126,10 +1082,10 @@ NIL
 1
 
 SLIDER
-390
-700
-795
-733
+5
+150
+410
+183
 num_links
 num_links
 0
@@ -1141,10 +1097,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-390
-735
-795
-768
+5
+185
+410
+218
 max-idle-time
 max-idle-time
 1
@@ -1156,32 +1112,32 @@ NIL
 HORIZONTAL
 
 MONITOR
-1140
-560
-1225
-605
-tasks open
+415
+600
+570
+645
+Number of open tasks:
 (ticks * number-of-tasks) - sum tasks-overflowed - sum tasks-finished
 17
 1
 11
 
 MONITOR
-1230
-510
-1350
-555
-nodes fired
+860
+450
+1002
+495
+Number of Fired Nodes
 fired
 17
 1
 11
 
 MONITOR
-605
-45
-795
-90
+1070
+10
+1260
+55
 Total tasks completed
 total-tasks-finished
 17
@@ -1189,10 +1145,10 @@ total-tasks-finished
 11
 
 MONITOR
-1025
-45
-1225
-90
+1480
+10
+1680
+55
 Total tasks unable to complete
 total-tasks-overflowed
 17
@@ -1200,68 +1156,51 @@ total-tasks-overflowed
 11
 
 PLOT
-35
-95
-385
-245
-Total number of created nodes each round
-ticks
-nodes
+860
+495
+1130
+720
+ Hired/Fired nodes
+hired/fired
+number of nodes
 0.0
-10.0
+5.0
 0.0
-10.0
+50.0
 true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" "plot hired"
-
-PLOT
-35
-250
-385
-400
-Total number of fired nodes each round
-ticks
-nodes
-0.0
-10.0
-0.0
-10.0
 true
-false
-"" ""
+"" "clear-plot"
 PENS
-"default" 1.0 0 -16777216 true "" "plot fired"
+"Hired" 1.0 1 -10899396 true "" "plotxy 1 hired"
+"Fired" 1.0 1 -2674135 true "" "plotxy 3 fired"
 
 MONITOR
-1230
-600
-1350
-645
-Mean node age
+1595
+450
+1680
+495
+Mean Age
 mean ages
 2
 1
 11
 
 MONITOR
-1230
-555
-1350
-600
-mean nodes
+1325
+450
+1425
+495
+Mean nodes:
 round mean num-nodes
 0
 1
 11
 
 BUTTON
-800
-610
-997
-655
+5
+330
+230
+375
 Print Balence Scores
 compute-balence-scores
 NIL
@@ -1275,21 +1214,21 @@ NIL
 1
 
 MONITOR
-1230
-645
-1350
-690
-nodes hired
+1000
+450
+1130
+495
+Number of Hired Nodes
 hired
 17
 1
 11
 
 BUTTON
-800
-660
-1025
-710
+5
+290
+230
+330
 Print number of specializ. switches
 compute-specialization-switches
 NIL
@@ -1303,10 +1242,10 @@ NIL
 1
 
 SWITCH
-1015
-615
-1127
-648
+280
+255
+410
+288
 LOGGING
 LOGGING
 1
@@ -1314,10 +1253,10 @@ LOGGING
 -1000
 
 SLIDER
-390
-770
-665
-803
+5
+220
+280
+253
 meeting-freq
 meeting-freq
 1
@@ -1329,15 +1268,152 @@ NIL
 HORIZONTAL
 
 SWITCH
-665
-770
-795
-803
+280
+220
+410
+253
 MEETINGS
 MEETINGS
-0
+1
 1
 -1000
+
+PLOT
+860
+55
+1260
+275
+Compleated Tasks by Difficulty Type
+difficulty type
+compleated tasks
+0.0
+6.0
+0.0
+10.0
+false
+true
+"" "clear-plot\nif tasks-finished != 0 [\n  set-plot-y-range 0 max tasks-finished + 5\n]\n\n"
+PENS
+"Very Easy" 0.5 1 -13345367 true "" "if tasks-finished != 0 [\n  plotxy 0.75 item 0 tasks-finished\n]"
+"Easy" 0.5 1 -10899396 true "" "if tasks-finished != 0 [\n  plotxy 1.75 item 1 tasks-finished\n]"
+"Medium" 0.5 1 -1184463 true "" "if tasks-finished != 0 [\n  plotxy 2.75 item 2 tasks-finished\n]"
+"Hard" 0.5 1 -955883 true "" "if tasks-finished != 0 [\n  plotxy 3.75 item 3 tasks-finished\n]\n"
+"Very Hard" 0.5 1 -2674135 true "" "if tasks-finished != 0 [\n  plotxy 4.75 item 4 tasks-finished\n]\n"
+
+PLOT
+1260
+55
+1680
+275
+Overflowed (Lost) Tasks by Difficulty Type
+difficulty type
+overflowed tasks
+0.0
+6.0
+0.0
+10.0
+true
+true
+"" "clear-plot\nif tasks-overflowed != 0 [\n  set-plot-y-range 0 max tasks-overflowed + 5\n]\n"
+PENS
+"Very Easy" 0.5 1 -13345367 true "" "if tasks-overflowed != 0 [\n  plotxy 0.75 item 0 tasks-overflowed\n]\n"
+"Easy" 0.5 1 -10899396 true "" "if tasks-overflowed != 0 [\n  plotxy 1.75 item 1 tasks-overflowed\n]\n"
+"Medium" 0.5 1 -1184463 true "" "if tasks-overflowed != 0 [\n  plotxy 2.75 item 2 tasks-overflowed\n]\n"
+"Hard" 0.5 1 -955883 true "" "if tasks-overflowed != 0 [\n  plotxy 3.75 item 3 tasks-overflowed\n]\n\n"
+"Very Hard" 0.5 1 -2674135 true "" "if tasks-overflowed != 0 [\n  plotxy 4.75 item 4 tasks-overflowed\n]\n"
+
+PLOT
+1425
+495
+1680
+720
+Node Age Metrics
+metrics
+age in ticks
+0.0
+7.0
+0.0
+10.0
+true
+true
+"" "clear-plot"
+PENS
+"Max" 1.0 1 -5825686 true "" "if ages != 0 and length ages > 1 [\n  plotxy 1 max ages\n]"
+"Min" 1.0 1 -13345367 true "" "if ages != 0 and length ages > 1 [\n  plotxy 3 min ages\n]"
+"Mean" 1.0 1 -2674135 true "" "if ages != 0 and length ages > 1 [\n  plotxy 5 mean ages\n]"
+
+PLOT
+415
+450
+850
+600
+Node Count over Ticks 
+ticks
+node count
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -2674135 true "" "plot count nodes"
+
+MONITOR
+1225
+450
+1325
+495
+Max nodes:
+max num-nodes
+17
+1
+11
+
+MONITOR
+1130
+450
+1225
+495
+Min nodes:
+min num-nodes
+17
+1
+11
+
+MONITOR
+1510
+450
+1595
+495
+Max Age
+max ages
+17
+1
+11
+
+MONITOR
+1425
+450
+1510
+495
+Min Age
+min ages
+17
+1
+11
+
+MONITOR
+700
+600
+850
+645
+Number of legacy nodes
+count nodes with [age = ticks]
+17
+1
+11
 
 @#$#@#$#@
 # Worker Capability and Task Assignment Model
