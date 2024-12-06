@@ -154,13 +154,13 @@ end
 
 to instantiate-tasks [ n ]
   create-tasks n [
-    let difficulty random 5 + 1
+    let difficulty (random 5 + 1) * 5
     set task-type one-of [ [0 0 1] [0 1 0] [1 0 0] ]
     set task-type (map [ x -> x * difficulty ] task-type)
     set age 0
     set size 0.5
 
-    let tdif difficulty - 1
+    let tdif round (difficulty / 5) - 1
     set n-tasks replace-item tdif n-tasks (item tdif n-tasks + 1)
     assign-task-to-node self
   ]
@@ -295,7 +295,7 @@ to agent-loop
     ; tracks how many round the node lived for
     set age age + 1
 
-    if MEETINGS [
+    ifelse MEETINGS [
       ; For now a meeting lasts one tick. Therefor we reset the meeting status in the beginning of a new round.
       set in-meeting false
       set hosting-meeting false
@@ -304,9 +304,14 @@ to agent-loop
         set hosting-meeting true
         start-worker-meeting self
       ]
+      if in-meeting = false [
+        ; start reasoning process if the node is not in a meeting
+        reason self
+      ]
+    ] [
+      ; start reasoning process if the node is not in a meeting
+      reason self
     ]
-    ; start reasoning process if the node is not in a meeting
-    reason self
   ]
 end
 
@@ -341,7 +346,7 @@ to reason [ agent ]
       LOGGER "INFO" ( word "working on task " working-on " time left " [time-left] of working-on )
       if [time-left] of working-on = 0 [
         let tdif sum [task-type] of working-on
-        set tdif tdif - 1
+        set tdif round (tdif / 5) - 1
         set tasks-finished replace-item tdif tasks-finished (item tdif tasks-finished + 1)
 
         set fin-ttl replace-item tdif fin-ttl (item tdif fin-ttl + [age] of working-on)
@@ -389,7 +394,7 @@ to handle-random-task-assigned-overflow [ agent ]
   [
     LOGGER "INFO" (word "Asked " count [ link-neighbors ] of agent " Collegues, found no one to solve " overflowing-task " discarding.")
     let tdif sum [task-type] of overflowing-task
-    set tdif tdif - 1
+    set tdif round (tdif / 5 ) - 1
     set tasks-overflowed replace-item tdif tasks-overflowed (item tdif tasks-overflowed + 1)
 
     ask overflowing-task [
@@ -830,7 +835,6 @@ to compute-specialization-switches
 end
 
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 415
@@ -885,7 +889,7 @@ number-of-nodes
 number-of-nodes
 1
 100
-10.0
+20.0
 1
 1
 NIL
@@ -917,7 +921,7 @@ number-of-tasks
 number-of-tasks
 0
 100
-7.0
+1.0
 1
 1
 NIL
@@ -933,7 +937,7 @@ alpha
 0
 1
 0.1
-0.1
+0.01
 1
 NIL
 HORIZONTAL
@@ -969,8 +973,8 @@ stop-at-ticks
 stop-at-ticks
 100
 10000
-1000.0
-50
+2080.0
+10
 1
 NIL
 HORIZONTAL
@@ -1104,8 +1108,8 @@ SLIDER
 max-idle-time
 max-idle-time
 1
-10
-5.0
+100
+80.0
 1
 1
 NIL
@@ -1260,8 +1264,8 @@ SLIDER
 meeting-freq
 meeting-freq
 1
-50
-15.0
+100
+8.0
 1
 1
 NIL
@@ -1274,7 +1278,7 @@ SWITCH
 253
 MEETINGS
 MEETINGS
-1
+0
 1
 -1000
 
