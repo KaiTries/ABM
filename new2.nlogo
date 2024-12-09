@@ -36,7 +36,9 @@ nodes-own [
   cap-updates      ; all capability updates (times x capability vector)
   meeting-offset   ; random variable to offset the meetings of every single node
   in-meeting       ; bool defining if node is in a meeting
-  hosting-meeting   ; bool defining if node is hosting a meeting
+  hosting-meeting  ; bool defining if node is hosting a meeting
+  meeting-start    ; number representing tick when round started
+  meeting-length   ; number representing the length of the meeting
 ]
 
 breed [ tasks task ]
@@ -72,7 +74,7 @@ to setup
   set currently-overflowing 0
   set fired 0
   set total-idle-time 0
-  set num-nodes []
+  set num-nodes [20]
   setup-nodes number-of-nodes
 
   setup-plots
@@ -90,7 +92,9 @@ to go
     set hired hired + currently-overflowing
     set currently-overflowing 0 ;
   ]
-  instantiate-tasks number-of-tasks
+  if ticks = 1 or ticks mod TASKS_EVERY = 0 [
+    instantiate-tasks number-of-tasks
+  ]
   agent-loop
   tasks-maintanance
   set num-nodes fput count nodes num-nodes
@@ -124,6 +128,7 @@ to setup-nodes [ n ]
       set meeting-offset random meeting-freq
       set in-meeting false
       set hosting-meeting false
+      set meeting-start 0
     ]
 
     ; setting the initial capabilitie vector
@@ -146,6 +151,7 @@ to setup-nodes [ n ]
     ask selected-partners [
       create-link-with myself
     ]
+    set meeting-length count my-links
 
     LOGGER "INFO" ( word "created node " self " with " count my-links " collegues")
   ]
@@ -185,6 +191,20 @@ to-report total-tasks-finished
   report sum tasks-finished
 end
 
+to-report payoff_tasks_finished
+  let easy1 1 * item 0 tasks-finished
+  let easy2 2 * item 1 tasks-finished
+  let med1 3 * item 2 tasks-finished
+  let med2 4 * item 3 tasks-finished
+  let hard 5 * item 4 tasks-finished
+  report easy1 + easy2 + med1 + med2 + hard
+end
+
+to-report payoff_per_node_avg
+  let total_payoff payoff_tasks_finished
+  let mean_nodes round mean num-nodes
+  report total_payoff / mean_nodes
+end
 
 
 to-report avg-task-age
@@ -239,7 +259,7 @@ to layout
   ]
 
   ; colore the links that are active in a meeting
-  ask nodes with [hosting-meeting = true] [
+  ask nodes with [in-meeting = true or hosting-meeting = true] [
     ask my-links [
       set color red
       set thickness 0.3
@@ -296,20 +316,22 @@ to agent-loop
     set age age + 1
 
     ifelse MEETINGS [
-      ; For now a meeting lasts one tick. Therefor we reset the meeting status in the beginning of a new round.
-      set in-meeting false
-      set hosting-meeting false
-
-      if (ticks + meeting-offset) mod meeting-freq = 0 [
+      ; Meeting length depends on number of participating nodes -> 1 tick per node
+      if in-meeting = false and (ticks + meeting-offset) mod meeting-freq = 0 [
         set hosting-meeting true
         start-worker-meeting self
       ]
+      if in-meeting = true and ticks - meeting-start > meeting-length [
+        set in-meeting false
+        set hosting-meeting false
+      ]
+
       if in-meeting = false [
         ; start reasoning process if the node is not in a meeting
         reason self
       ]
     ] [
-      ; start reasoning process if the node is not in a meeting
+      ; without meetings agents can just reason
       reason self
     ]
   ]
@@ -603,6 +625,10 @@ to start-worker-meeting [ a ]
 
     ifelse length all-tasks = 0 [
       LOGGER "INFO" (word "Meeting had no tasks to share. All task stacks where empty")
+      ask a [
+        set hosting-meeting false
+        set in-meeting false
+      ]
     ] [
       set all-tasks reduce sentence all-tasks
       ; Prepare participants for the meeting
@@ -634,6 +660,7 @@ end
 to prepare-participants-for-meeting [ participants ]
   ask participants [
     set in-meeting true
+    set meeting-start ticks
     set stack-of-tasks []
   ]
 end
@@ -834,7 +861,6 @@ to compute-specialization-switches
   ]
 end
 
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 415
@@ -881,10 +907,10 @@ NIL
 1
 
 SLIDER
-5
-115
-410
-148
+0
+570
+405
+603
 number-of-nodes
 number-of-nodes
 1
@@ -913,25 +939,25 @@ NIL
 1
 
 SLIDER
-5
-45
-410
-78
+0
+465
+210
+498
 number-of-tasks
 number-of-tasks
 0
 100
-1.0
+4.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-5
-10
-410
-43
+0
+500
+405
+533
 alpha
 alpha
 0
@@ -965,10 +991,10 @@ tasks-finished
 11
 
 SLIDER
-5
-80
-410
-113
+0
+535
+405
+568
 stop-at-ticks
 stop-at-ticks
 100
@@ -1086,25 +1112,25 @@ NIL
 1
 
 SLIDER
-5
-150
+0
+175
 410
-183
+208
 num_links
 num_links
 0
 10
-4.0
+3.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-5
-185
-410
-218
+0
+605
+405
+638
 max-idle-time
 max-idle-time
 1
@@ -1246,10 +1272,10 @@ NIL
 1
 
 SWITCH
-280
-255
-410
-288
+145
+130
+275
+163
 LOGGING
 LOGGING
 1
@@ -1257,10 +1283,10 @@ LOGGING
 -1000
 
 SLIDER
-5
-220
-280
-253
+0
+95
+410
+128
 meeting-freq
 meeting-freq
 1
@@ -1273,9 +1299,9 @@ HORIZONTAL
 
 SWITCH
 280
-220
+130
 410
-253
+163
 MEETINGS
 MEETINGS
 0
@@ -1418,6 +1444,16 @@ count nodes with [age = ticks]
 17
 1
 11
+
+CHOOSER
+0
+130
+138
+175
+TASKS_EVERY
+TASKS_EVERY
+2 4 6 8
+3
 
 @#$#@#$#@
 # Worker Capability and Task Assignment Model
@@ -1990,6 +2026,339 @@ NetLogo 6.4.0
     </enumeratedValueSet>
     <enumeratedValueSet variable="num_links">
       <value value="3"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_8_LINK_3" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="8"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_8_LINK_5" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="8"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_8_LINK_8" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="8"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_40_LINK_3" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="40"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_40_LINK_5" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="40"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_40_LINK_8" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="40"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_80_LINK_3" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="3"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="80"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_80_LINK_5" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="5"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="80"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="FINAL_FREQ_80_LINK_8" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <metric>tasks-finished</metric>
+    <metric>payoff_tasks_finished</metric>
+    <metric>payoff_per_node_avg</metric>
+    <enumeratedValueSet variable="number-of-tasks">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="number-of-nodes">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="max-idle-time">
+      <value value="80"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="alpha">
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="stop-at-ticks">
+      <value value="2080"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num_links">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="MEETINGS">
+      <value value="true"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="TASKS_EVERY">
+      <value value="8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="LOGGING">
+      <value value="false"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="meeting-freq">
+      <value value="80"/>
     </enumeratedValueSet>
   </experiment>
 </experiments>
