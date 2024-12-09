@@ -860,7 +860,6 @@ to compute-specialization-switches
     print (word "Node " self " - Specialization Switches: " specialization-switches)
   ]
 end
-
 @#$#@#$#@
 GRAPHICS-WINDOW
 415
@@ -1610,6 +1609,20 @@ At each simulation tick, the worker evaluates its behavior and determines its co
 	]
 
 **Capability Adjustment:** When a worker completes a task, they adjust their capabilities towards the task requirements using **balanced learning**, promoting skill development based on experience. Capabilities are updated while maintaining the overall sum of their capability vector and staying within bounds (1 to 5 for each capability).
+
+### Worker Meetings
+
+**Meetings** introduce a coordinated task redistribution event occurring at regular intervals. When meetings are enabled (`MEETINGS = true`), certain workers (hosts) hold brief, one-tick gatherings with their neighbors. During each meeting:
+
+**1. Initiation**: A host worker initiates the meeting at predefined intervals (`meeting-freq`), resetting any ongoing meeting status at the start of a new tick.
+
+**2. Participants**: The host and all its link-neighbors not currently in a meeting join the meeting. Participants temporarily halt their regular reasoning process and pool their tasks together.
+
+**3. Task Pooling**: All tasks held by the participants are collected into a shared pool. This central repository provides a global view of the available tasks at that moment.
+
+**4. Redistribution**: Tasks from the pool are reassigned to participants based on their capability fit scores. Tasks are given to the workers who can handle them most efficiently, ensuring a better match between worker capabilities and task requirements.
+
+**5. Outcome**: By the end of the meeting, tasks are more optimally distributed across the participants. If some tasks cannot be assigned due to capacity limitations, they overflow and are discarded. This overflow may influence future hiring decisions. Overall, this mechanism aims to improve workflow efficiency and guide the workforce toward better skill specialization or balanced skill development.
 
 ### Visualization
 
