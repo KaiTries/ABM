@@ -1,0 +1,7 @@
+"BehaviorSpace results (NetLogo 6.4.0)","Stats version 2.0"
+"new2.nlogo"
+"FINAL"
+"12/19/2024 18:44:51:695 +0100"
+"min-pxcor","max-pxcor","min-pycor","max-pycor"
+"-16","16","-16","16"
+"number-of-tasks","number-of-nodes","max-idle-time","alpha","stop-at-ticks","num_links","MEETINGS","TASKS_EVERY","LOGGING","meeting-freq","[step]","(mean) tasks-finished","(std) tasks-finished","(mean) payoff_tasks_finished","(std) payoff_tasks_finished","(mean) payoff_per_node_avg","(std) payoff_per_node_avg","(mean) tasks-finished-r","(std) tasks-finished-r","(mean) fired","(std) fired","(mean) hired","(std) hired"
