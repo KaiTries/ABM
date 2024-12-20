@@ -1459,7 +1459,7 @@ TASKS_EVERY
 
 ## WHAT IS IT?
 
-This model simulates a dynamic workforce where each worker (represented as a "node") possesses a set of capabilities. Tasks of varying difficulties and types are continuously generated and assigned to workers. Workers can communicate with their colleagues to exchange tasks. As workers complete tasks, their capabilities evolve based on the nature of the tasks they have solved. The model explores how workers specialize or generalize over time and how the organizational structure adapts to workload changes.
+This model simulates a dynamic workforce where each worker (represented as a "node") possesses a set of capabilities and participates in meetings. Tasks of varying difficulties and types are continuously generated and assigned to workers. Workers can communicate with their colleagues to exchange tasks. As workers complete tasks, their capabilities evolve based on the nature of the tasks they have solved. In the center we have the functionality of meetings that allow agents to periodically allocate the tasks in a most efficient manner, this ofcourse comes with a cost of not being able to work on the tasks during that time. The model explores how the system behaves with different meeting intervals and team sizes.
 
 ## ENTITIES IN THE SIMULATION
 The two primary entities in our model are **workers** and **tasks**. Workers are designed to solve tasks that align with their strengths and capabilities. They are also connected to colleagues, enabling them to exchange tasks they are less proficient at handling.
@@ -1469,7 +1469,7 @@ The two primary entities in our model are **workers** and **tasks**. Workers are
 **Task-Stack**: Workers can hold multiple tasks in their stack (stack-of-tasks) but have a maximum capacity (default is 5 tasks).<br> 
 **Working On**: Workers can actively work on one task at a time (working-on).<br> 
 **Idle-Time**: If a worker is not working for a number of ticks (max-idle-time), they are fired.<br> 
-**Communication**: Workers are connected to a set number of colleagues (num_links) with whom they can exchange tasks.
+**Communication**: Workers are connected to a set number of colleagues (num_links) with whom they can exchange tasks. This links also represent their current working group, with which they can enter meetings.
 
 
 ### Tasks
@@ -1612,9 +1612,9 @@ At each simulation tick, the worker evaluates its behavior and determines its co
 
 ### Worker Meetings
 
-**Meetings** introduce a coordinated task redistribution event occurring at regular intervals. When meetings are enabled (`MEETINGS = true`), certain workers (hosts) hold brief, one-tick gatherings with their neighbors. During each meeting:
+**Meetings** introduce a coordinated task redistribution event occurring at regular intervals. When meetings are enabled (`MEETINGS = true`), certain workers (hosts) hold  gatherings with their neighbors. During each meeting:
 
-**1. Initiation**: A host worker initiates the meeting at predefined intervals (`meeting-freq`), resetting any ongoing meeting status at the start of a new tick.
+**1. Initiation**: A host worker initiates the meeting at predefined intervals (`meeting-freq`).
 
 **2. Participants**: The host and all its link-neighbors not currently in a meeting join the meeting. Participants temporarily halt their regular reasoning process and pool their tasks together.
 
@@ -1662,28 +1662,6 @@ Press the **Go** button to start the simulation. The simulation will continue un
 - **Vary `number-of-tasks`**: Increase or decrease the number of tasks generated each tick to simulate high or low workload environments.
 - **Modify Network Structure**: Change `num_links` to see how the communication network affects task distribution and collaboration.
 - **Observe Specialization Metrics**: Use the built-in procedures to compute balance scores and specialization switches.
-
-## NETLOGO FEATURES
-
-- **Breeds and Own Variables**: The model uses breeds (`nodes` and `tasks`) with custom attributes.
-- **Links**: Workers are connected via links representing their colleagues.
-- **Visualization**: Uses shapes, colors, and positioning to represent different agent states and attributes.
-- **Lists and Maps**: Utilizes NetLogo's list and map functionalities for handling capabilities and tasks.
-- **Custom Procedures**: Implements complex behaviors and calculations through custom procedures and reporters.
-
-## RELATED MODELS
-
-- **Team Assembly Line**: Models how workers assemble products in a production line.
-- **Rumor Mill**: Simulates information spread in a network, similar to task exchange among workers.
-- **Wolf Sheep Predation**: While different in theme, it demonstrates population dynamics that can be analogous to worker hiring and firing.
-
-## CREDITS AND REFERENCES
-
-- **Model Author**: [Your Name], [Year].
-- **Inspiration**: Based on concepts from organizational behavior, skill development, and agent-based modeling literature.
-- **References**:
-  - Smith, J. (2020). *Agent-Based Modeling of Organizational Behavior*. Journal of Simulation.
-  - Doe, A. (2019). *Skill Dynamics in Collaborative Environments*. Complexity Research.
 @#$#@#$#@
 default
 true
