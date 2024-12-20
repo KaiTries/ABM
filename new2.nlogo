@@ -1461,6 +1461,8 @@ TASKS_EVERY
 
 This model simulates a dynamic workforce where each worker (represented as a "node") possesses a set of capabilities and participates in meetings. Tasks of varying difficulties and types are continuously generated and assigned to workers. Workers can communicate with their colleagues to exchange tasks. As workers complete tasks, their capabilities evolve based on the nature of the tasks they have solved. In the center we have the functionality of meetings that allow agents to periodically allocate the tasks in a most efficient manner, this ofcourse comes with a cost of not being able to work on the tasks during that time. The model explores how the system behaves with different meeting intervals and team sizes.
 
+In our experiments we have defined a tick to be 1 hour and therefore 2080 ticks to be a full work year (260) days. Other definitions can ofcourse be used
+
 ## ENTITIES IN THE SIMULATION
 The two primary entities in our model are **workers** and **tasks**. Workers are designed to solve tasks that align with their strengths and capabilities. They are also connected to colleagues, enabling them to exchange tasks they are less proficient at handling.
 
@@ -1651,9 +1653,9 @@ Press the **Go** button to start the simulation. The simulation will continue un
 ## THINGS TO NOTICE
 
 - **Capability Evolution**: Notice how workers' capabilities change over time based on the tasks they complete.
-- **Specialization vs. Generalization**: Some workers may become specialists in certain tasks, while others remain generalists.
 - **Task Overflow and Hiring**: Observe how task overflow leads to the hiring of new workers.
 - **Firing Dynamics**: See how idle workers are fired and how this affects the overall workforce.
+- **Meeting Consequences**: Check how efficiency is affected by the frequency of meetings.
 
 ## THINGS TO TRY
 
